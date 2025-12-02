@@ -1,0 +1,27 @@
+[project]
+name = "bughouse"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "redis>=5.2.0",
+    "fastapi>=0.115.4",
+    "sqlalchemy>=2.0.36",
+    "pyjwt>=2.9.0",
+    "python-dotenv>=1.0.1",
+    "uvicorn>=0.32.0",
+    "asyncpg>=0.30.0",
+    "alembic>=1.14.0",
+    "pydantic-settings>=2.8.1"
+]
+
+[dependency-groups]
+dev = ["cli-tools", "isort>=6.0.1"]
+
+[tool.uv.sources]
+cli-tools = { git = "https://github.com/w1vern/cli_tools" }
+
+[tool.isort]
+profile = "black"
+line_length = 70
+multi_line_output = 3
+include_trailing_comma = false

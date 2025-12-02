@@ -1,0 +1,15 @@
+
+.git/
+.gitmodules
+.gitignore
+.venv/
+__pycache__/
+.vscode/
+logs/
+*.env*
+compose*.yml
+Dockerfile
+.dockerignore
+LICENSE
+Makefile
+*.md
