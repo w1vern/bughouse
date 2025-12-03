@@ -1,5 +1,4 @@
 
-
 from datetime import (
     UTC,
     datetime,
@@ -106,4 +105,3 @@ class RefreshToken:
             "user_id": str(self.user_id),
             "secret": self.secret
         })
-    

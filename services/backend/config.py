@@ -1,6 +1,9 @@
 
-from shared.config import BootLevel, env_config
-from shared.infrastructure import setup_logger
+from shared.infrastructure import (
+    setup_logger,
+    BootLevel,
+    env_config
+)
 
 logger = setup_logger(__name__)
 
