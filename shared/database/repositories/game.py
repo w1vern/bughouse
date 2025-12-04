@@ -2,7 +2,7 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Game, User, GameUser, Move
+from ..models import Game, GameUser, Move, User
 from .base import BaseRepository
 
 

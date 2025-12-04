@@ -56,15 +56,19 @@ async def main() -> None:
     async with session_manager.context_session() as session:
         ur = UserRepository(session)
         rpr = RankingParamRepository(session)
-        await ur.create(
-            email=env_config.superuser.email,
-            username=env_config.superuser.username,
-            password_hash=env_config.superuser.password,
-            rating=env_config.ranking.mu,
-            sigma=env_config.ranking.sigma
-        )
-        for param in default_ranking_params:
-            await rpr.create(name=param[0], value=param[1])
+        users = await ur.get_all()
+        if len(users) == 0:
+            await ur.create(
+                email=env_config.superuser.email,
+                username=env_config.superuser.username,
+                password_hash=env_config.superuser.password,
+                rating=env_config.ranking.mu,
+                sigma=env_config.ranking.sigma
+            )
+        params = await rpr.get_all()
+        if len(params) == 0:
+            for param in default_ranking_params:
+                await rpr.create(name=param[0], value=param[1])
 
     logger.info("database is filled")
 

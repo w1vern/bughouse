@@ -91,6 +91,7 @@ services:
         condition: service_healthy
     profiles:
       - with_frontend
+      - with_backend
     restart: unless-stopped
     ports:
       - ${NGINX_PORT}:80

@@ -31,7 +31,7 @@ class UserRepository(BaseRepository[User]):
         )
 
     @staticmethod
-    async def check_password(
+    async def _check_password(
         user: User,
         password: str
     ) -> bool:
@@ -41,6 +41,17 @@ class UserRepository(BaseRepository[User]):
             password=password.encode(),
             hashed_password=user.password_hash.encode()
         )
+
+    async def get_by_auth(
+        self,
+        email: str,
+        password: str
+    ) -> User | None:
+        user = await self.get_by_email(email=email)
+        if user is None or \
+                not await self._check_password(user, password):
+            return None
+        return user
 
     async def create(
         self,
@@ -89,3 +100,7 @@ class UserRepository(BaseRepository[User]):
             rating=rating,
             sigma=sigma
         )
+
+    async def update_secret(self, user: User) -> None:
+        user.secret = secrets.token_urlsafe()
+        await self.session.flush()

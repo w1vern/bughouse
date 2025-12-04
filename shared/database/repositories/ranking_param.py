@@ -38,11 +38,8 @@ class RankingParamRepository():
 
     async def edit(
         self,
-        name: str,
+        param: RankingParam,
         value: float
     ) -> None:
-        rp = await self.get_by_name(name)
-        if rp is None:
-            raise Exception("RankingParam not found")
-        rp.value = value
+        param.value = value
         await self.session.flush()

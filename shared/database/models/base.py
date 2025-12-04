@@ -9,6 +9,7 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.sql import func
 
+
 class Base(DeclarativeBase):
     ...
 
