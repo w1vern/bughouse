@@ -7,12 +7,14 @@ from sqlalchemy.orm import (
     Mapped,
     mapped_column,
 )
-from sqlalchemy.sql import (
-    func,
-)
-
+from sqlalchemy.sql import func
 
 class Base(DeclarativeBase):
+    ...
+
+class BaseModel(Base):
+    __abstract__ = True
+    
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
 
     created_date: Mapped[datetime] = mapped_column(server_default=func.now())

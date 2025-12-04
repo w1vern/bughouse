@@ -1,5 +1,5 @@
 
-from .config import env_config, BootLevel
+from .config import BootLevel, env_config
 from .logger import setup_logger
 from .redis import get_redis_client
 

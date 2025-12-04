@@ -45,6 +45,17 @@ class BackendSettings(BaseModel):
     workers: int = 0
 
 
+class RankingParams(BaseModel):
+    model_config = SettingsConfigDict(
+        populate_by_name=True)
+
+    beta: float = 0
+    tau: float = 0
+    sigma: float = 0
+    mu: float = 0
+    epsilon: float = 0
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=os.getenv("ENV_FILE", "dev.env"),
@@ -55,6 +66,7 @@ class Settings(BaseSettings):
     db: DBSettings = DBSettings()
     redis: RedisSettings = RedisSettings()
     backend: BackendSettings = BackendSettings()
+    ranking: RankingParams = RankingParams()
     boot_level: BootLevel = BootLevel.DEBUG
 
 

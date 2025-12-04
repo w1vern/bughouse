@@ -3,7 +3,8 @@ from enum import Enum
 
 from redis.asyncio import Redis
 
-from shared.infrastructure import get_redis_client as gr, env_config
+from shared.infrastructure import env_config
+from shared.infrastructure import get_redis_client as gr
 
 
 class RedisType(str, Enum):

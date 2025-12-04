@@ -14,9 +14,9 @@ from sqlalchemy import BinaryExpression, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import and_
 
-from ..models.base import Base
+from ..models.base import BaseModel
 
-ModelType = TypeVar("ModelType", bound=Base)
+ModelType = TypeVar("ModelType", bound=BaseModel)
 
 
 class BaseRepository(Generic[ModelType]):
