@@ -4,7 +4,7 @@ import asyncio
 from sqlalchemy import text
 
 from shared.database import (
-    RankingParamsRepository,
+    RankingParamRepository,
     UserRepository,
     session_manager
 )
@@ -17,10 +17,12 @@ default_user: dict[str, object] = {
 }
 
 
-default_ranking_params: list[dict[str, float]] = [
-    {
-
-    }
+default_ranking_params: list[tuple[str, float]] = [
+    ("beta", env_config.ranking.beta),
+    ("tau", env_config.ranking.tau),
+    ("epsilon", env_config.ranking.epsilon),
+    ("mu", env_config.ranking.mu),
+    ("sigma", env_config.ranking.sigma)
 ]
 
 
@@ -53,9 +55,18 @@ async def main() -> None:
     await wait_for_table("users")
     async with session_manager.context_session() as session:
         ur = UserRepository(session)
-        rpr = RankingParamsRepository(session)
+        rpr = RankingParamRepository(session)
+        await ur.create(
+            email=env_config.superuser.email,
+            username=env_config.superuser.username,
+            password_hash=env_config.superuser.password,
+            rating=env_config.ranking.mu,
+            sigma=env_config.ranking.sigma
+        )
+        for param in default_ranking_params:
+            await rpr.create(name=param[0], value=param[1])
 
-        logger.info("database is filled")
+    logger.info("database is filled")
 
 if __name__ == "__main__":
     asyncio.run(main())

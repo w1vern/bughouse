@@ -55,6 +55,14 @@ class RankingParams(BaseModel):
     mu: float = 0
     epsilon: float = 0
 
+class SuperUser(BaseModel):
+    model_config = SettingsConfigDict(
+        populate_by_name=True)
+
+    email: str = ""
+    username: str = ""
+    password: str = ""
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -66,6 +74,7 @@ class Settings(BaseSettings):
     db: DBSettings = DBSettings()
     redis: RedisSettings = RedisSettings()
     backend: BackendSettings = BackendSettings()
+    superuser: SuperUser = SuperUser()
     ranking: RankingParams = RankingParams()
     boot_level: BootLevel = BootLevel.DEBUG
 
