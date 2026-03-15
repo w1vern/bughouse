@@ -1,11 +1,11 @@
 
 from fastapi import APIRouter
 
+from ..websocket import router as ws_router
 from .auth import router as auth_router
 from .game import router as game_router
 from .ranking_param import router as ranking_param_router
 from .user import router as user_router
-from ..websocket.ws import router as ws_router
 
 router = APIRouter(prefix="/api")
 

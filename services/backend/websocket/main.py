@@ -1,4 +1,5 @@
 
+import asyncio
 import json
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
@@ -7,7 +8,8 @@ from redis.asyncio.client import PubSub, Redis
 from shared.database import User
 
 from ..depends import get_db_user
-from ..redis import get_redis_client
+from ..redis import get_redis_client, RedisType
+from .models import State, Game, Move, Lobby
 
 router = APIRouter(
     prefix="/ws",
@@ -17,6 +19,7 @@ router = APIRouter(
 
 async def websocket_handler(
     websocket: WebSocket,
+    state: State,
     user: User,
     redis: Redis
 ) -> None:
@@ -35,12 +38,17 @@ async def websocket_handler(
 
 
 async def redis_handler(
+    state: State,
     user: User,
     ps: PubSub
 ) -> None:
-    async for msg in ps.listen():
-        if msg["type"] == "message":
-            pass
+    try:
+        async for msg in ps.listen():
+            if msg["type"] == "message":
+                pass
+    except asyncio.CancelledError:
+        await ps.unsubscribe()
+        await ps.close()
 
 
 @router.websocket(
@@ -54,10 +62,19 @@ async def _(
 ) -> None:
     await websocket.accept()
     pubsub = redis.pubsub()
+    str_state = await redis.get(f"{RedisType.state.value}:{user.id}")
+    if str_state is None:
+        state = State()
+    else:
+        state = State.from_json(str_state)
 
-    try:
-        pass
-    except Exception:
-        pass
-    finally:
-        pass
+    redis_task = asyncio.create_task(redis_handler(state, user, pubsub))
+    websocket_task = asyncio.create_task(websocket_handler(websocket, state, user, redis))
+
+    done, pending = await asyncio.wait(
+        [redis_task, websocket_task],
+        return_when=asyncio.FIRST_COMPLETED
+    )
+    for task in pending:
+        task.cancel()
+        await task
