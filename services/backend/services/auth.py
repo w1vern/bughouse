@@ -14,7 +14,6 @@ from ..exceptions import *
 from ..redis import RedisType, get_redis_client
 from ..schemas import CreateUserSchema, LoginUserSchema
 from ..token import AccessToken, RefreshToken
-from .anti_spam import AntiSpamService
 
 
 class AuthService:
@@ -22,26 +21,22 @@ class AuthService:
         self,
         ur: UserRepository,
         redis: Redis,
-        anti_spam: AntiSpamService
     ) -> None:
         self.ur = ur
         self.redis = redis
-        self.anti_spam = anti_spam
 
     @classmethod
     def depends(
         cls,
         ur: UserRepository = Depends(get_user_repo),
         redis: Redis = Depends(get_redis_client),
-        anti_spam: AntiSpamService = Depends(AntiSpamService.depends)
     ) -> 'AuthService':
-        return cls(ur, redis, anti_spam)
+        return cls(ur, redis)
 
     async def register(
         self,
         register_schema: CreateUserSchema
     ) -> None:
-        await self.anti_spam.increment_ip_attempts()
         if register_schema.password != register_schema.repeat_password:
             raise PasswordsDoNotMatchException()
         await self.ur.create(
@@ -56,10 +51,6 @@ class AuthService:
         self,
         login_schema: LoginUserSchema
     ) -> tuple[str, str]:
-
-        await self.anti_spam.increment_ip_attempts()
-        await self.anti_spam.check_login_lock(login_schema.email)
-
         user = await self.ur.get_by_auth(login_schema.email, login_schema.password)
         if user is None:
             await self.redis.set(f"{RedisType.incorrect_credentials.value}:{login_schema.email}", 0,

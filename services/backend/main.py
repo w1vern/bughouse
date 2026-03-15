@@ -4,12 +4,14 @@ from fastapi import FastAPI
 from .api import router
 from .response import SuccessResponse
 
-app = FastAPI(docs_url="/api/docs",
-              redoc_url="/api/redoc",
-              openapi_url="/api/openapi.json",
-              swagger_ui_parameters={
-                  "tryItOutEnabled": True,
-              })
+app = FastAPI(
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
+    swagger_ui_parameters={
+        "tryItOutEnabled": True,
+    }
+)
 
 
 @router.get("/health", include_in_schema=False)

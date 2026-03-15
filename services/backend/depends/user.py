@@ -28,9 +28,10 @@ from ..schemas import UserSchema
 from ..token import AccessToken
 
 
-async def get_user(access_token: str | None = Cookie(default=None),
-                   redis: Redis = Depends(get_redis_client)
-                   ) -> UserSchema:
+async def get_user(
+    access_token: str | None = Cookie(default=None),
+    redis: Redis = Depends(get_redis_client)
+) -> UserSchema:
     if access_token is None:
         raise AccessTokenMissingException()
     access = AccessToken.from_token(access_token)
@@ -44,9 +45,10 @@ async def get_user(access_token: str | None = Cookie(default=None),
     return access.user
 
 
-async def get_db_user(user: UserSchema,
-                      ur: UserRepository = Depends(get_user_repo)
-                      ) -> User:
+async def get_db_user(
+    user: UserSchema,
+    ur: UserRepository = Depends(get_user_repo)
+) -> User:
     user_db = await ur.get_by_id(user.id)
     if user_db is None:
         raise SendFeedbackToAdminException()
