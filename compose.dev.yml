@@ -1,7 +1,6 @@
-
 services:
   postgres:
-    image: postgres:16
+    image: postgres:17
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
@@ -9,19 +8,48 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     command: >
-      postgres
-      -c log_statement=all
-      -c log_duration=on
-      -c log_min_duration_statement=0
-      -c logging_collector=off
-      -c client_min_messages=log
-      -c log_error_verbosity=default
+      postgres -c log_statement=all -c log_duration=on -c log_min_duration_statement=0 -c logging_collector=off -c client_min_messages=log -c log_error_verbosity=default
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
   redis:
-    image: redis:7
+    image: redis:8
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+    env_file:
+      - .env
+    command: python -m services.backend
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      fill_db:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://backend:8000/api/health" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    profiles:
+      - with_backend
     restart: unless-stopped
 
   fill_db:
@@ -30,33 +58,9 @@ services:
     env_file:
       - .env
     depends_on:
-      postgres:
-        condition: service_started
       alembic:
-        condition: service_started
-    command: python -m services.fill_db
-    restart: no
-
-  backend:
-    build:
-      context: .
-    env_file:
-      - .env
-    depends_on:
-      redis:
-        condition: service_started
-      fill_db:
         condition: service_completed_successfully
-    command: python -m services.backend
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://backend:8000/api/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 5s
-    profiles:
-      - with_backend
-    restart: unless-stopped
+    command: python -m services.fill_db
 
   alembic:
     build:
@@ -67,7 +71,7 @@ services:
       - .env
     depends_on:
       postgres:
-        condition: service_started
+        condition: service_healthy
 
   frontend:
     build:
@@ -83,14 +87,13 @@ services:
 
   nginx:
     image: nginx:latest
-    volumes:
-      - ./services/nginx/nginx.conf:/etc/nginx/nginx.conf
-      - ./logs/nginx:/var/log/nginx/
     depends_on:
       backend:
         condition: service_healthy
+    volumes:
+      - ./services/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./logs/nginx:/var/log/nginx/
     profiles:
-      - with_frontend
       - with_backend
     restart: unless-stopped
     ports:
