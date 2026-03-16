@@ -3,10 +3,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from redis.asyncio.client import Redis
+
 from shared.infrastructure import BootLevel, env_config
 
 from ..redis import get_redis_client
-
 from ..schemas import EditUserSchema, UserSchema
 from ..services import UserService
 

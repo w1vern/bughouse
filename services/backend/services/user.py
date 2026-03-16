@@ -1,18 +1,22 @@
 
-
 from uuid import UUID
 
 from fastapi import Depends
-
-from ..redis import RedisType, get_redis_client
-
-from ..exceptions import PasswordsDoNotMatchException, PermissionDeniedException, UserNotFoundException
-
-from ..depends import get_user, get_user_repo
-from shared.database import User, UserRepository
 from redis.asyncio.client import Redis
 
+from shared.database import User, UserRepository
+from shared.infrastructure import setup_logger
+
+from ..depends import get_user, get_user_repo
+from ..exceptions import (
+    PasswordsDoNotMatchException,
+    PermissionDeniedException,
+    UserNotFoundException
+)
+from ..redis import RedisType
 from ..schemas import EditUserSchema, UserSchema
+
+logger = setup_logger(__name__)
 
 
 class UserService:
@@ -44,6 +48,7 @@ class UserService:
     async def me(
         self
     ) -> UserSchema:
+        logger.debug("test print")
         return self.user_schema
 
     async def update_user(
@@ -79,12 +84,10 @@ class UserService:
     ) -> list[str]:
         usernames: set[str] = await redis.smembers(RedisType.active_player.value) # type: ignore
         return list(usernames)
-    
+
     async def create_active_player(
         self,
         username: str,
         redis: Redis
     ) -> None:
         await redis.sadd(RedisType.active_player.value, username) # type: ignore
-
-
