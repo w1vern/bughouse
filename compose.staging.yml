@@ -51,8 +51,6 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
       fill_db:
         condition: service_completed_successfully
     healthcheck:
