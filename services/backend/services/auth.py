@@ -42,7 +42,7 @@ class AuthService:
         await self.ur.create(
             email=register_schema.email,
             username=register_schema.username,
-            password_hash=register_schema.password,
+            password=register_schema.password,
             rating=env_config.ranking.mu,
             sigma=env_config.ranking.sigma
         )

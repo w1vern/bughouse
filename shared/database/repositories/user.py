@@ -58,14 +58,14 @@ class UserRepository(BaseRepository[User]):
         *,
         email: str | None,
         username: str,
-        password_hash: str | None,
+        password: str | None,
         rating: float,
         sigma: float
     ) -> User:
         return await self._create(
             email=email,
             username=username,
-            password_hash=self._get_hash(password_hash),
+            password_hash=self._get_hash(password),
             rating=rating,
             sigma=sigma,
             secret=secrets.token_urlsafe()
@@ -82,13 +82,24 @@ class UserRepository(BaseRepository[User]):
         )
         return await self.session.scalar(stmt)
 
+    async def get_by_username(
+        self,
+        username: str
+    ) -> User | None:
+        stmt = (
+            select(self.model)
+            .where(self.model.username == username)
+            .limit(1)
+        )
+        return await self.session.scalar(stmt)
+
     async def edit(
         self,
         user: User,
         *,
         email: str | None = None,
         username: str | None = None,
-        password_hash: str | None = None,
+        password: str | None = None,
         rating: float | None = None,
         sigma: float | None = None
     ) -> None:
@@ -96,7 +107,7 @@ class UserRepository(BaseRepository[User]):
             instance=user,
             email=email,
             username=username,
-            password_hash=self._get_hash(password_hash),
+            password_hash=self._get_hash(password),
             rating=rating,
             sigma=sigma
         )

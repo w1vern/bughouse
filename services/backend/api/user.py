@@ -2,6 +2,10 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
+from redis.asyncio.client import Redis
+from shared.infrastructure import BootLevel, env_config
+
+from ..redis import get_redis_client
 
 from ..schemas import EditUserSchema, UserSchema
 from ..services import UserService
@@ -10,27 +14,14 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 
 @router.get(
-    path="",
-    description="Get all users"
+    path="/active",
+    description="Get all active users"
 )
-async def get_all(
-    limit: int | None = Query(
-        None, ge=1, description="Number of items to return"),
-    offset: int | None = Query(
-        None, ge=0, description="From which index to start"),
-    user_service: UserService = Depends(UserService.depends)
-) -> list[UserSchema]:
-    return await user_service.get_all(limit, offset)
-
-
-@router.get(
-    path="/count",
-    description="Get count of users"
-)
-async def count(
-    user_service: UserService = Depends(UserService.depends)
-) -> int:
-    return await user_service.count()
+async def get_active(
+    user_service: UserService = Depends(UserService.depends),
+    redis: Redis = Depends(get_redis_client)
+) -> list[str]:
+    return await user_service.get_active(redis)
 
 
 @router.get(
@@ -64,3 +55,15 @@ async def edit(
     user_service: UserService = Depends(UserService.depends)
 ) -> None:
     return await user_service.update_user(id, edit_schema)
+
+if env_config.boot_level is BootLevel.DEBUG:
+    @router.patch(
+        path="/add_active_player/{username}",
+        description="test endpoint for add active players"
+    )
+    async def add_active(
+        username: str,
+        redis: Redis = Depends(get_redis_client),
+        user_service: UserService = Depends(UserService.depends)
+    ) -> None:
+        await user_service.create_active_player(username, redis)

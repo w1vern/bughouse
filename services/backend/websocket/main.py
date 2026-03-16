@@ -8,8 +8,8 @@ from redis.asyncio.client import PubSub, Redis
 from shared.database import User
 
 from ..depends import get_db_user
-from ..redis import get_redis_client, RedisType
-from .models import State, Game, Move, Lobby
+from ..redis import RedisType, get_redis_client
+from .models import Game, Lobby, Move, State
 
 router = APIRouter(
     prefix="/ws",

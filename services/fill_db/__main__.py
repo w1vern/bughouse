@@ -61,7 +61,7 @@ async def main() -> None:
             await ur.create(
                 email=env_config.superuser.email,
                 username=env_config.superuser.username,
-                password_hash=env_config.superuser.password,
+                password=env_config.superuser.password,
                 rating=env_config.ranking.mu,
                 sigma=env_config.ranking.sigma
             )
