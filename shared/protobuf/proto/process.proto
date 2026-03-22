@@ -1,0 +1,43 @@
+
+syntax = "proto3";
+package process;
+
+service ProcessService {
+  rpc CreateLobby(CreateLobbyRequest)       returns (LobbyResponse);
+  rpc JoinLobby(JoinLobbyRequest)           returns (LobbyResponse);
+  rpc LeaveLobby(LeaveLobbyRequest)         returns (LobbyResponse);
+  rpc GetLobby(GetLobbyRequest)             returns (LobbyResponse);
+
+  rpc StartMatchmaking(StartMatchmakingRequest) returns (StatusResponse);
+  rpc CancelMatchmaking(CancelMatchmakingRequest) returns (StatusResponse);
+
+  rpc GetGameState(GetGameStateRequest)     returns (GameStateResponse);
+}
+
+message CreateLobbyRequest  { int64 user_id = 1; }
+
+message JoinLobbyRequest    { string lobby_id = 1; int64 user_id = 2; }
+
+message LeaveLobbyRequest   { string lobby_id = 1; int64 user_id = 2; }
+
+message GetLobbyRequest     { string lobby_id = 1; }
+
+message LobbyResponse {
+  bool   ok       = 1;
+  string lobby_id = 2;
+  string error    = 3;
+}
+
+message StartMatchmakingRequest  { string lobby_id = 1; }
+
+message CancelMatchmakingRequest { string lobby_id = 1; }
+
+message StatusResponse { bool ok = 1; string error = 2; }
+
+message GetGameStateRequest { string game_id = 1; }
+
+message GameStateResponse   {
+  bool   ok         = 1;
+  string json_state = 2;
+  string error      = 3;
+}

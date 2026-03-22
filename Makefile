@@ -38,3 +38,6 @@ install_submodules:
 
 update_submodules:
 	git submodule update --remote --recursive
+
+proto:
+	protoc --proto_path=shared/protobuf/proto --python_out=shared/protobuf/generated --pyi_out=shared/protobuf/generated shared/protobuf/proto/*.proto
