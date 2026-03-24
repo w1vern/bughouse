@@ -16,6 +16,17 @@ router = APIRouter(
     tags=["WebSocket"]
 )
 
+moves = [
+    "d5",
+    "Nf6",
+    "Nc6",
+    "d5",
+    "Bd6",
+    "0-0",
+    "Re8",
+    "Bd7",
+]
+
 
 async def websocket_handler(
     websocket: WebSocket,
@@ -24,13 +35,14 @@ async def websocket_handler(
     redis: Redis
 ) -> None:
     try:
+        iter = moves.__iter__()
         async for msg in websocket.iter_text():
             message = json.loads(msg)
             match message["type"]:
                 case "ping":
                     await websocket.send_text("pong")
                 case "move":
-                    pass
+                    await websocket.send_json({"type": "move", "date": iter.__next__()})
                 case _:
                     raise ValueError("Unknown message type")
     except WebSocketDisconnect:
