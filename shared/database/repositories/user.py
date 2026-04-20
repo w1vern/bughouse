@@ -60,7 +60,8 @@ class UserRepository(BaseRepository[User]):
         username: str,
         password: str | None,
         rating: float,
-        sigma: float
+        sigma: float,
+        color: int
     ) -> User:
         return await self._create(
             email=email,
@@ -68,6 +69,7 @@ class UserRepository(BaseRepository[User]):
             password_hash=self._get_hash(password),
             rating=rating,
             sigma=sigma,
+            color=color,
             secret=secrets.token_urlsafe()
         )
 

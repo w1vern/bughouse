@@ -17,6 +17,8 @@ dependencies = [
     "protobuf>=6.33.0,<7",
     "grpcio>=1.78.0",
     "grpcio-tools>=1.78.0",
+    "trueskill>=0.4.5",
+    "chess>=1.11.2",
 ]
 
 [dependency-groups]

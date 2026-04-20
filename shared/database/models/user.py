@@ -25,5 +25,6 @@ class User(BaseModel):
 
     rating: Mapped[float]
     sigma: Mapped[float]
+    color: Mapped[int]
 
     secret: Mapped[str] = mapped_column(default=token_urlsafe)

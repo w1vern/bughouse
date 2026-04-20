@@ -152,6 +152,7 @@ dependencies = [
     { name = "alembic" },
     { name = "asyncpg" },
     { name = "bcrypt" },
+    { name = "chess" },
     { name = "fastapi" },
     { name = "grpcio" },
     { name = "grpcio-tools" },
@@ -161,6 +162,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "redis" },
     { name = "sqlalchemy" },
+    { name = "trueskill" },
     { name = "uvicorn" },
     { name = "websockets" },
 ]
@@ -177,6 +179,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.14.0" },
     { name = "asyncpg", specifier = ">=0.30.0" },
     { name = "bcrypt", specifier = ">=5.0.0" },
+    { name = "chess", specifier = ">=1.11.2" },
     { name = "fastapi", specifier = ">=0.115.4" },
     { name = "grpcio", specifier = ">=1.78.0" },
     { name = "grpcio-tools", specifier = ">=1.78.0" },
@@ -186,6 +189,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0.1" },
     { name = "redis", specifier = ">=5.2.0" },
     { name = "sqlalchemy", specifier = ">=2.0.36" },
+    { name = "trueskill", specifier = ">=0.4.5" },
     { name = "uvicorn", specifier = ">=0.32.0" },
     { name = "websockets", specifier = ">=16.0" },
 ]
@@ -196,6 +200,12 @@ dev = [
     { name = "isort", specifier = ">=6.0.1" },
     { name = "mypy-protobuf", specifier = ">=5.0.0" },
 ]
+
+[[package]]
+name = "chess"
+version = "1.11.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/93/09/7d04d7581ae3bb8b598017941781bceb7959dd1b13e3ebf7b6a2cd843bc9/chess-1.11.2.tar.gz", hash = "sha256:a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39", size = 6131385, upload-time = "2025-02-25T19:10:27.328Z" }
 
 [[package]]
 name = "cli-tools"
@@ -575,6 +585,15 @@ wheels = [
 ]
 
 [[package]]
+name = "six"
+version = "1.17.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81", size = 34031, upload-time = "2024-12-04T17:35:28.174Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050, upload-time = "2024-12-04T17:35:26.475Z" },
+]
+
+[[package]]
 name = "sqlalchemy"
 version = "2.0.48"
 source = { registry = "https://pypi.org/simple" }
@@ -624,6 +643,15 @@ sdist = { url = "https://files.pythonhosted.org/packages/c4/68/79977123bb7be889a
 wheels = [
     { url = "https://files.pythonhosted.org/packages/81/0d/13d1d239a25cbfb19e740db83143e95c772a1fe10202dda4b76792b114dd/starlette-0.52.1-py3-none-any.whl", hash = "sha256:0029d43eb3d273bc4f83a08720b4912ea4b071087a3b48db01b7c839f7954d74", size = 74272, upload-time = "2026-01-18T13:34:09.188Z" },
 ]
+
+[[package]]
+name = "trueskill"
+version = "0.4.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d0/b1/572f309178eacdccd9f9f5f3e3e14fb3543a89c6259d62b36660350af2b9/trueskill-0.4.5.tar.gz", hash = "sha256:9d62b48d2428369d712bd9becff9f9a2caa325e1a2ab5f9392d34bff757867bb", size = 21315, upload-time = "2018-09-07T12:27:32.078Z" }
 
 [[package]]
 name = "types-protobuf"
