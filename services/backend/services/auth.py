@@ -44,7 +44,8 @@ class AuthService:
             username=register_schema.username,
             password=register_schema.password,
             rating=env_config.ranking.mu,
-            sigma=env_config.ranking.sigma
+            sigma=env_config.ranking.sigma,
+            color=0
         )
 
     async def login(

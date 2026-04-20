@@ -8,7 +8,9 @@ __pycache__/
 
 logs/
 
-result.md
+*.md
+!AGENTS.md
+!README.md
 result.tree
 
 test.py
