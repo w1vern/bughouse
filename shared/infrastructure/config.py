@@ -64,6 +64,16 @@ class SuperUser(BaseModel):
     password: str = ""
 
 
+class ProcessSettings(BaseModel):
+    model_config = SettingsConfigDict(
+        populate_by_name=True)
+
+    grpc_host: str = "process"
+    grpc_port: int = 50051
+    queue_tick_sec: float = 2.0
+    abort_timeout_sec: float = 30.0
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=os.getenv("ENV_FILE", "dev.env"),
@@ -76,6 +86,7 @@ class Settings(BaseSettings):
     backend: BackendSettings = BackendSettings()
     superuser: SuperUser = SuperUser()
     ranking: RankingParams = RankingParams()
+    process: ProcessSettings = ProcessSettings()
     boot_level: BootLevel = BootLevel.DEBUG
 
 

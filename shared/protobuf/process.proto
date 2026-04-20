@@ -1,43 +1,123 @@
-
 syntax = "proto3";
 package process;
 
 service ProcessService {
-  rpc CreateLobby(CreateLobbyRequest)       returns (LobbyResponse);
-  rpc JoinLobby(JoinLobbyRequest)           returns (LobbyResponse);
-  rpc LeaveLobby(LeaveLobbyRequest)         returns (LobbyResponse);
-  rpc GetLobby(GetLobbyRequest)             returns (LobbyResponse);
+  // Lobby
+  rpc CreateLobby(UserRef)          returns (LobbyResp);
+  rpc JoinLobby(JoinReq)            returns (LobbyResp);
+  rpc LeaveLobby(UserRef)           returns (StatusResp);
+  rpc SeatPlayer(SeatReq)           returns (StatusResp);
+  rpc UnseatPlayer(UnseatReq)       returns (StatusResp);
+  rpc KickFromLobby(KickReq)        returns (StatusResp);
+  rpc SetLobbyConfig(SetConfigReq)  returns (StatusResp);
+  rpc StartMatchmaking(UserRef)     returns (StatusResp);
+  rpc CancelMatchmaking(UserRef)    returns (StatusResp);
+  rpc GetLobby(LobbyRef)            returns (LobbyStateResp);
 
-  rpc StartMatchmaking(StartMatchmakingRequest) returns (StatusResponse);
-  rpc CancelMatchmaking(CancelMatchmakingRequest) returns (StatusResponse);
+  // Game
+  rpc MakeMove(MoveReq)             returns (StatusResp);
+  rpc Resign(UserRef)               returns (StatusResp);
+  rpc GetGameState(UserRef)         returns (GameStateResp);
 
-  rpc GetGameState(GetGameStateRequest)     returns (GameStateResponse);
+  // Session
+  rpc GetUserSnapshot(UserRef)      returns (SnapshotResp);
 }
 
-message CreateLobbyRequest  { int64 user_id = 1; }
+// ---------- Refs / requests ----------
+message UserRef     { string user_id = 1; }
+message LobbyRef    { string lobby_id = 1; }
 
-message JoinLobbyRequest    { string lobby_id = 1; int64 user_id = 2; }
+message JoinReq     { string user_id = 1; string lobby_id = 2; }
+message SeatReq     { string leader_id = 1; string target_user_id = 2; int32 pos = 3; }
+message UnseatReq   { string leader_id = 1; int32 pos = 2; }
+message KickReq     { string leader_id = 1; string target_user_id = 2; }
+message SetConfigReq {
+  string leader_id    = 1;
+  int32  initial_ms   = 2;
+  int32  increment_ms = 3;
+  bool   rated        = 4;
+}
+message MoveReq     { string user_id = 1; string uci = 2; }
 
-message LeaveLobbyRequest   { string lobby_id = 1; int64 user_id = 2; }
-
-message GetLobbyRequest     { string lobby_id = 1; }
-
-message LobbyResponse {
-  bool   ok       = 1;
-  string lobby_id = 2;
-  string error    = 3;
+// ---------- Domain ----------
+message LobbyConfig {
+  int32 initial_ms   = 1;
+  int32 increment_ms = 2;
+  bool  rated        = 3;
 }
 
-message StartMatchmakingRequest  { string lobby_id = 1; }
+message Seat {
+  bool   empty    = 1;
+  string user_id  = 2;
+  string username = 3;
+  double rating   = 4;
+}
 
-message CancelMatchmakingRequest { string lobby_id = 1; }
+message LobbyState {
+  string        id        = 1;
+  string        leader_id = 2;
+  repeated Seat seats     = 3;
+  LobbyConfig   config    = 4;
+  string        state     = 5;
+}
 
-message StatusResponse { bool ok = 1; string error = 2; }
+message Clocks {
+  int32 b0w = 1;
+  int32 b0b = 2;
+  int32 b1w = 3;
+  int32 b1b = 4;
+}
 
-message GetGameStateRequest { string game_id = 1; }
+message Pockets { string json = 1; }
 
-message GameStateResponse   {
+message GameState {
+  string          game_id     = 1;
+  int32           board       = 2;
+  int32           color       = 3;
+  string          partner_id  = 4;
+  repeated string opponents   = 5;
+  string          fen         = 6;
+  string          mate_fen    = 7;
+  Pockets         pockets     = 8;
+  string          last_move   = 9;
+  Clocks          clocks      = 10;
+  bool            your_turn   = 11;
+  string          winner      = 12;
+}
+
+// ---------- Responses ----------
+message LobbyResp {
   bool   ok         = 1;
-  string json_state = 2;
-  string error      = 3;
+  string error_code = 2;
+  string message    = 3;
+  string lobby_id   = 4;
+}
+
+message StatusResp {
+  bool   ok         = 1;
+  string error_code = 2;
+  string message    = 3;
+}
+
+message LobbyStateResp {
+  bool       ok         = 1;
+  string     error_code = 2;
+  string     message    = 3;
+  LobbyState lobby      = 4;
+}
+
+message GameStateResp {
+  bool      ok         = 1;
+  string    error_code = 2;
+  string    message    = 3;
+  GameState game       = 4;
+}
+
+message SnapshotResp {
+  bool       ok         = 1;
+  string     error_code = 2;
+  string     message    = 3;
+  string     state      = 4;
+  LobbyState lobby      = 5;
+  GameState  game       = 6;
 }
