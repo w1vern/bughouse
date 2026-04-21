@@ -16,6 +16,14 @@ RUN uv sync --locked --no-dev
 
 COPY . .
 
+RUN uv run -m grpc_tools.protoc \
+		--proto_path=. \
+		--python_out=. \
+		--pyi_out=. \
+		--grpc_python_out=. \
+		--mypy_grpc_out=. \
+		shared/protobuf/process.proto
+
 ENV PYTHONUNBUFFERED=1
 
 ENV PATH="/app/.venv/bin:$PATH"
