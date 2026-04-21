@@ -54,6 +54,8 @@ class RankingParams(BaseModel):
     sigma: float = 0
     mu: float = 0
     epsilon: float = 0
+    queue_wait_bonus: float = 0.001
+    queue_color_weight: float = 0.01
 
 class SuperUser(BaseModel):
     model_config = SettingsConfigDict(
