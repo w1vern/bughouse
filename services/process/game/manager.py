@@ -37,10 +37,10 @@ def _pos_to_color(pos: int) -> chess.Color:
 
 
 def _pos_of_player(game: GameObj, user_id: UUID) -> int:
-    for i, p in enumerate(game.players):
-        if p.user_id == user_id:
-            return i
-    raise GameError.not_in_this_game()
+    try:
+        return game.pos_of(user_id)
+    except KeyError as exc:
+        raise GameError.not_in_this_game() from exc
 
 
 def _loser_team_from_pos(pos: int) -> GameResult:
