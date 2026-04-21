@@ -1,4 +1,6 @@
 
+from uuid import UUID
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,7 +26,7 @@ class GameRepository(BaseRepository[Game]):
         increment: float,
         users: tuple[User, User, User, User],
         diffs: tuple[float, float, float, float],
-        moves: list[tuple[str, float, int]]
+        moves: list[tuple[str, float, int, UUID]]
     ) -> Game:
         game = await self._create(
             result=result,
@@ -35,20 +37,20 @@ class GameRepository(BaseRepository[Game]):
             gu = GameUser(
                 user_id=users[index].id,
                 game_id=game.id,
-                board=index > 1,
+                board=index // 2,
                 color=index % 2,
                 rating=users[index].rating,
                 diff=diffs[index]
             )
             self.session.add(gu)
-        for index, (notation, time_to_move, board_number) in enumerate(moves):
+        for index, (notation, time_to_move, board_number, user_id) in enumerate(moves):
             move = Move(
                 notation=notation,
                 time_to_move=time_to_move,
                 board_number=board_number,
                 index=index,
                 game_id=game.id,
-                user_id=users[board_number*2+index % 2].id
+                user_id=user_id
             )
             self.session.add(move)
         await self.session.flush()
