@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from services.process.errors import LobbyError as _BaseLobbyError
+from services.core.errors import LobbyError as _BaseLobbyError
 
 ERR_LOBBY_NOT_FOUND = "lobby_not_found"
 ERR_USER_ALREADY_IN_LOBBY = "user_already_in_lobby"

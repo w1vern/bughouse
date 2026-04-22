@@ -63,7 +63,8 @@ async def main() -> None:
                 username=env_config.superuser.username,
                 password=env_config.superuser.password,
                 rating=env_config.ranking.mu,
-                sigma=env_config.ranking.sigma
+                sigma=env_config.ranking.sigma,
+                color=0
             )
         params = await rpr.get_all()
         if len(params) == 0:

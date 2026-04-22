@@ -156,6 +156,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "grpcio" },
     { name = "grpcio-tools" },
+    { name = "mypy-protobuf" },
     { name = "protobuf" },
     { name = "pydantic-settings" },
     { name = "pyjwt" },
@@ -171,7 +172,6 @@ dependencies = [
 dev = [
     { name = "cli-tools" },
     { name = "isort" },
-    { name = "mypy-protobuf" },
 ]
 
 [package.metadata]
@@ -183,6 +183,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.4" },
     { name = "grpcio", specifier = ">=1.78.0" },
     { name = "grpcio-tools", specifier = ">=1.78.0" },
+    { name = "mypy-protobuf", specifier = ">=5.0.0" },
     { name = "protobuf", specifier = ">=6.33.0,<7" },
     { name = "pydantic-settings", specifier = ">=2.8.1" },
     { name = "pyjwt", specifier = ">=2.9.0" },
@@ -198,7 +199,6 @@ requires-dist = [
 dev = [
     { name = "cli-tools", git = "https://github.com/w1vern/cli_tools" },
     { name = "isort", specifier = ">=6.0.1" },
-    { name = "mypy-protobuf", specifier = ">=5.0.0" },
 ]
 
 [[package]]

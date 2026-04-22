@@ -1,7 +1,7 @@
 .PHONY: back
 
 back:
-	uvicorn services.backend.main:app --reload
+	uvicorn run -m services.backend
 
 back_install:
 	uv sync
@@ -40,7 +40,7 @@ update_submodules:
 	git submodule update --remote --recursive
 
 proto:
-	python -m grpc_tools.protoc \
+	uv run -m grpc_tools.protoc \
 		--proto_path=. \
 		--python_out=. \
 		--pyi_out=. \

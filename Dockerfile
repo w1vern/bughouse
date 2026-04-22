@@ -16,7 +16,7 @@ RUN uv sync --locked --no-dev
 
 COPY . .
 
-RUN uv run -m grpc_tools.protoc \
+RUN uv run --no-dev -m grpc_tools.protoc \
 		--proto_path=. \
 		--python_out=. \
 		--pyi_out=. \

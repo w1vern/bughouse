@@ -13,15 +13,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.database.repositories.game import GameRepository
 from shared.database.repositories.user import UserRepository
+from shared.events import GameEnd, GameMoveEvent, GameStart
 from shared.infrastructure import setup_logger
 from shared.infrastructure.config import RankingParams
 
 from ..lobby.models import LobbyConfig, Seat
-from ..notifier import Notifier
+from ..notifier import (
+    Notifier,
+    clocks_from_raw,
+    pockets_from_raw,
+    reason_str,
+    result_str,
+)
 from .board import BughouseBoards
 from .clocks import Clocks, FlagCallback
 from .errors import GameError
-from .models import EndReason, GameObj, GameResult, MoveRecord, PlayerRef
+from .models import (
+    EndReason,
+    GameObj,
+    GameResult,
+    MoveRecord,
+    PlayerRef
+)
 
 logger = setup_logger(__name__)
 
@@ -185,15 +198,15 @@ class GameManager:
         next_pos = self._pos_for(board_idx, next_color)
         next_user_id = game.players[next_pos].user_id
 
-        payload: dict[str, Any] = {
-            "board": board_idx,
-            "uci": uci,
-            "fen_after": result.fen_after,
-            "pockets_after": result.pockets_after,
-            "clocks": game.clocks.snapshot(),
-            "next_mover_id": str(next_user_id),
-        }
-        await self._notifier.publish_move(game, payload)
+        event = GameMoveEvent(
+            board=board_idx,
+            uci=uci,
+            fen_after=result.fen_after,
+            pockets_after=pockets_from_raw(result.pockets_after),
+            clocks=clocks_from_raw(game.clocks.snapshot()),
+            next_mover_id=str(next_user_id),
+        )
+        await self._notifier.publish_move(game, event)
 
     async def resign(self, game_id: UUID, user_id: UUID) -> None:
         game = self._games.get(game_id)
@@ -263,7 +276,7 @@ class GameManager:
         return partners[pos]
 
     async def _publish_start(self, game: GameObj) -> None:
-        per_user: dict[str, dict[str, Any]] = {}
+        per_user: dict[str, GameStart] = {}
         for pos in range(4):
             board_idx = _pos_to_board(pos)
             color = _pos_to_color(pos)
@@ -274,15 +287,15 @@ class GameManager:
                 if i != pos and i != partner_pos
             ]
             uid = str(game.players[pos].user_id)
-            per_user[uid] = {
-                "game_id": str(game.id),
-                "board": board_idx,
-                "color": int(color),
-                "partner_id": str(game.players[partner_pos].user_id),
-                "opponents": opponents,
-                "initial_ms": game.config.initial_ms,
-                "increment_ms": game.config.increment_ms,
-            }
+            per_user[uid] = GameStart(
+                game_id=str(game.id),
+                board=board_idx,
+                color=int(color),
+                partner_id=str(game.players[partner_pos].user_id),
+                opponents=opponents,
+                initial_ms=game.config.initial_ms,
+                increment_ms=game.config.increment_ms,
+            )
         await self._notifier.publish_game_start(game, per_user)
 
     async def _abort_watchdog(self, game_id: UUID) -> None:
@@ -325,14 +338,14 @@ class GameManager:
         except Exception:
             logger.exception("failed to persist game %s", game.id)
 
-        payload: dict[str, Any] = {
-            "result": result.name.lower(),
-            "reason": reason.value,
-            "rating_deltas": {
+        event = GameEnd(
+            result=result_str(result),
+            reason=reason_str(reason),
+            rating_deltas={
                 str(game.players[i].user_id): diffs[i] for i in range(4)
             },
-        }
-        await self._notifier.publish_game_end(game, payload)
+        )
+        await self._notifier.publish_game_end(game, event)
 
         self._games.pop(game.id, None)
 

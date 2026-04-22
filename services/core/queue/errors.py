@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from services.process.errors import QueueError as _BaseQueueError
+from services.core.errors import QueueError as _BaseQueueError
 
 ERR_ALREADY_IN_QUEUE = "already_in_queue"
 ERR_NOT_IN_QUEUE = "not_in_queue"

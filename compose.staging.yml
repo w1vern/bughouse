@@ -65,6 +65,22 @@ services:
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
+  core:
+    image: ghcr.io/w1vern/bughouse:staging
+    env_file:
+      - .env
+    command: python -m services.core
+    depends_on:
+      redis:
+        condition: service_healthy
+      fill_db:
+        condition: service_completed_successfully
+    profiles:
+      - with_backend
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
   fill_db:
     image: ghcr.io/w1vern/bughouse:staging
     env_file:

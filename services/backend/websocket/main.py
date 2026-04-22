@@ -1,6 +1,5 @@
 
 import asyncio
-import json
 from uuid import uuid4
 
 import grpc
@@ -8,12 +7,13 @@ from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from redis.asyncio import Redis
 
 from shared.database import User
+from shared.events import ErrorEvent, ServerEvent
 from shared.infrastructure import setup_logger
 from shared.protobuf import process_pb2, process_pb2_grpc
 
 from ..depends import get_db_user
 from ..redis import get_redis_client
-from .dispatcher import dispatch, snapshot_to_json
+from .dispatcher import dispatch, snapshot_from_pb
 from .grpc_client import get_process_stub
 
 logger = setup_logger(__name__)
@@ -42,6 +42,10 @@ end
 """
 
 
+async def _send_event(websocket: WebSocket, event: ServerEvent) -> None:
+    await websocket.send_text(event.model_dump_json())
+
+
 async def _refresh_lock_loop(redis: Redis, key: str, conn_uuid: str) -> None:
     try:
         while True:
@@ -67,13 +71,12 @@ async def _send_snapshot(
         )
     except grpc.aio.AioRpcError as exc:
         logger.warning("GetUserSnapshot failed for user=%s: %s", user.id, exc)
-        await websocket.send_json({
-            "type": "error",
-            "code": exc.code().name if exc.code() is not None else "grpc_error",
-            "message": exc.details() or "",
-        })
+        code = exc.code().name if exc.code() is not None else "grpc_error"
+        await _send_event(
+            websocket, ErrorEvent(code=code, message=exc.details() or "")
+        )
         return
-    await websocket.send_text(snapshot_to_json(resp))
+    await _send_event(websocket, snapshot_from_pb(resp, user.id))
 
 
 async def _pubsub_loop(redis: Redis, user: User, websocket: WebSocket) -> None:
@@ -110,7 +113,7 @@ async def _client_loop(
     async for raw in websocket.iter_text():
         reply = await dispatch(stub, user, raw)
         if reply is not None:
-            await websocket.send_text(json.dumps(reply, ensure_ascii=False))
+            await _send_event(websocket, reply)
 
 
 @router.websocket(path="", name="WebSocket")

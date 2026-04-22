@@ -38,8 +38,6 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
       fill_db:
         condition: service_completed_successfully
     healthcheck:
@@ -48,6 +46,21 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+    profiles:
+      - with_backend
+    restart: unless-stopped
+
+  core:
+    build:
+      context: .
+    env_file:
+      - .env
+    command: python -m services.core
+    depends_on:
+      redis:
+        condition: service_healthy
+      fill_db:
+        condition: service_completed_successfully
     profiles:
       - with_backend
     restart: unless-stopped

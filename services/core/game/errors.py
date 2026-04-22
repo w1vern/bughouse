@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from services.process.errors import GameError as _BaseGameError
+from services.core.errors import GameError as _BaseGameError
 
 ERR_GAME_NOT_FOUND = "game_not_found"
 ERR_NOT_IN_THIS_GAME = "not_in_this_game"

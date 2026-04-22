@@ -6,7 +6,10 @@ from fastapi import FastAPI
 
 from .api import router
 from .response import SuccessResponse
-from .websocket.grpc_client import close_grpc_channel, init_grpc_channel
+from .websocket.grpc_client import (
+    close_grpc_channel,
+    init_grpc_channel
+)
 
 
 @asynccontextmanager

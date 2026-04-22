@@ -9,7 +9,11 @@ from grpc import aio
 
 from shared.database.main import session_manager
 from shared.database.repositories.user import UserRepository
-from shared.infrastructure import env_config, get_redis_client, setup_logger
+from shared.infrastructure import (
+    env_config,
+    get_redis_client,
+    setup_logger
+)
 from shared.protobuf import process_pb2_grpc
 
 from .game.manager import GameManager
