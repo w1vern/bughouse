@@ -109,7 +109,7 @@ def score(
     team_b = (ratings[1], ratings[2])
     quality = trueskill.quality([team_a, team_b])
 
-    base = abs(quality - 0.5)
+    base = -quality
 
     color_a = colors[0] * 1 + colors[3] * (-1)
     color_b = colors[1] * (-1) + colors[2] * 1

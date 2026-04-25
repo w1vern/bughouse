@@ -11,11 +11,9 @@ import chess
 import trueskill
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.database.repositories.game import GameRepository
-from shared.database.repositories.user import UserRepository
+from shared.database import User, GameRepository, UserRepository
 from shared.events import GameEnd, GameMoveEvent, GameStart
-from shared.infrastructure import setup_logger
-from shared.infrastructure.config import RankingParams
+from shared.infrastructure import setup_logger, RankingParams
 
 from ..lobby.models import LobbyConfig, Seat
 from ..notifier import (
@@ -358,7 +356,10 @@ class GameManager:
             user_repo = UserRepository(session)
             game_repo = GameRepository(session)
 
-            users = []
+            class _User:
+                rating: float
+                sigma: float
+            users: list[User] = []
             for p in game.players:
                 u = await user_repo.get_by_id(p.user_id)
                 if u is None:

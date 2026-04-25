@@ -70,11 +70,10 @@ class BughouseBoards:
         if captured_type is not None:
             effective_type = chess.PAWN if captured_promoted else captured_type
             own_pocket = board.pockets[mover]
-            partner_pocket = self.boards[1 - board_idx].pockets[mover]
-            try:
-                own_pocket.remove(effective_type)
-            except Exception:
-                pass
+            partner_pocket = self.boards[1 - board_idx].pockets[not mover]
+
+            own_pocket.remove(effective_type)
+
             partner_pocket.add(effective_type)
 
         self._last_move[board_idx] = uci

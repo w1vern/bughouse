@@ -80,6 +80,7 @@ class UserRepository(BaseRepository[User]):
         stmt = (
             select(self.model)
             .where(self.model.email == email)
+            .where(self.model.deleted_date == None)
             .limit(1)
         )
         return await self.session.scalar(stmt)
@@ -91,6 +92,7 @@ class UserRepository(BaseRepository[User]):
         stmt = (
             select(self.model)
             .where(self.model.username == username)
+            .where(self.model.deleted_date == None)
             .limit(1)
         )
         return await self.session.scalar(stmt)

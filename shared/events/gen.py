@@ -13,7 +13,7 @@ from . import CLIENT_EVENTS, SERVER_EVENTS
 def _schemas_for(
     events: dict[str, Any],
     ref_prefix: str,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     _, top = models_json_schema(
         [(cls, "validation") for cls in events.values()],
         ref_template=f"#/$defs/{ref_prefix}/{{model}}",
