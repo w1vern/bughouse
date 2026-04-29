@@ -5,10 +5,10 @@ from uuid import UUID
 import grpc
 
 from shared.infrastructure import setup_logger
-from shared.protobuf import process_pb2 as pb
-from shared.protobuf import process_pb2_grpc
+from shared.protobuf import core_pb2 as pb
+from shared.protobuf import core_pb2_grpc
 
-from .errors import ProcessError
+from .errors import coreError
 from .game.errors import GameError
 from .game.manager import GameManager
 from .lobby.errors import LobbyError
@@ -23,11 +23,11 @@ from .session import UserSessionIndex
 logger = setup_logger(__name__)
 
 
-def _status_from_error(e: ProcessError) -> pb.StatusResp:
+def _status_from_error(e: coreError) -> pb.StatusResp:
     return pb.StatusResp(ok=False, error_code=e.code, message=e.message)
 
 
-def _lobby_error_resp(e: ProcessError) -> pb.LobbyResp:
+def _lobby_error_resp(e: coreError) -> pb.LobbyResp:
     return pb.LobbyResp(ok=False, error_code=e.code, message=e.message)
 
 
@@ -38,7 +38,7 @@ def _parse_uuid(raw: str, context: grpc.aio.ServicerContext) -> UUID | None:
         return None
 
 
-class ProcessServiceServicer(process_pb2_grpc.ProcessServiceServicer):
+class CoreServiceServicer(core_pb2_grpc.CoreServiceServicer):
     def __init__(
         self,
         lobbies: LobbyManager,

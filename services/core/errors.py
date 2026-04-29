@@ -1,4 +1,4 @@
-class ProcessError(Exception):
+class coreError(Exception):
     code: str = "internal_error"
 
     def __init__(self, message: str = "", code: str | None = None) -> None:
@@ -8,13 +8,13 @@ class ProcessError(Exception):
         super().__init__(self.message)
 
 
-class LobbyError(ProcessError):
+class LobbyError(coreError):
     code = "lobby_error"
 
 
-class QueueError(ProcessError):
+class QueueError(coreError):
     code = "queue_error"
 
 
-class GameError(ProcessError):
+class GameError(coreError):
     code = "game_error"

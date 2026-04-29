@@ -5,7 +5,7 @@ from uuid import UUID
 
 import chess
 
-from shared.protobuf import process_pb2 as pb
+from shared.protobuf import core_pb2 as pb
 
 from .game.models import GameObj
 from .lobby.models import Lobby, LobbyState

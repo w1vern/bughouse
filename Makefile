@@ -46,4 +46,4 @@ proto:
 		--pyi_out=. \
 		--grpc_python_out=. \
 		--mypy_grpc_out=. \
-		shared/protobuf/process.proto
+		shared/protobuf/core.proto

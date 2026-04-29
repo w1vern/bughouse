@@ -46,7 +46,7 @@ async def get_user(
 
 
 async def get_db_user(
-    user: UserSchema,
+    user: UserSchema = Depends(get_user),
     ur: UserRepository = Depends(get_user_repo)
 ) -> User:
     user_db = await ur.get_by_id(user.id)

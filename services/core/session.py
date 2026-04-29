@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from shared.protobuf import process_pb2 as pb
+from shared.protobuf import core_pb2 as pb
 
 from .game.manager import GameManager
 from .lobby.manager import LobbyManager

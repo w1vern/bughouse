@@ -28,19 +28,19 @@ from shared.events import (
 )
 from shared.events.common import SnapshotStateStr
 from shared.infrastructure import setup_logger
-from shared.protobuf import process_pb2, process_pb2_grpc
+from shared.protobuf import core_pb2, core_pb2_grpc
 
 logger = setup_logger(__name__)
 
 
 Handler = Callable[
-    [process_pb2_grpc.ProcessServiceStub, User, Any],
+    [core_pb2_grpc.CoreServiceStub, User, Any],
     Awaitable[ServerEvent | None],
 ]
 
 
 def _status_error(
-    resp: process_pb2.StatusResp | process_pb2.LobbyResp,
+    resp: core_pb2.StatusResp | core_pb2.LobbyResp,
 ) -> ServerEvent | None:
     if resp.ok:
         return None
@@ -58,25 +58,25 @@ async def _h_ping(stub: Any, user: User, _: Any) -> ServerEvent:
 
 
 async def _h_lobby_create(stub: Any, user: User, _: Any) -> ServerEvent | None:
-    resp = await stub.CreateLobby(process_pb2.UserRef(user_id=str(user.id)))
+    resp = await stub.CreateLobby(core_pb2.UserRef(user_id=str(user.id)))
     return _status_error(resp)
 
 
 async def _h_lobby_join(stub: Any, user: User, cmd: LobbyJoin) -> ServerEvent | None:
     resp = await stub.JoinLobby(
-        process_pb2.JoinReq(user_id=str(user.id), lobby_id=cmd.lobby_id)
+        core_pb2.JoinReq(user_id=str(user.id), lobby_id=cmd.lobby_id)
     )
     return _status_error(resp)
 
 
 async def _h_lobby_leave(stub: Any, user: User, _: Any) -> ServerEvent | None:
-    resp = await stub.LeaveLobby(process_pb2.UserRef(user_id=str(user.id)))
+    resp = await stub.LeaveLobby(core_pb2.UserRef(user_id=str(user.id)))
     return _status_error(resp)
 
 
 async def _h_lobby_seat(stub: Any, user: User, cmd: LobbySeat) -> ServerEvent | None:
     resp = await stub.SeatPlayer(
-        process_pb2.SeatReq(
+        core_pb2.SeatReq(
             leader_id=str(user.id),
             target_user_id=cmd.user_id,
             pos=cmd.pos,
@@ -87,14 +87,14 @@ async def _h_lobby_seat(stub: Any, user: User, cmd: LobbySeat) -> ServerEvent | 
 
 async def _h_lobby_unseat(stub: Any, user: User, cmd: LobbyUnseat) -> ServerEvent | None:
     resp = await stub.UnseatPlayer(
-        process_pb2.UnseatReq(leader_id=str(user.id), pos=cmd.pos)
+        core_pb2.UnseatReq(leader_id=str(user.id), pos=cmd.pos)
     )
     return _status_error(resp)
 
 
 async def _h_lobby_kick(stub: Any, user: User, cmd: LobbyKick) -> ServerEvent | None:
     resp = await stub.KickFromLobby(
-        process_pb2.KickReq(
+        core_pb2.KickReq(
             leader_id=str(user.id),
             target_user_id=cmd.user_id,
         )
@@ -104,7 +104,7 @@ async def _h_lobby_kick(stub: Any, user: User, cmd: LobbyKick) -> ServerEvent | 
 
 async def _h_lobby_config(stub: Any, user: User, cmd: LobbyConfig) -> ServerEvent | None:
     resp = await stub.SetLobbyConfig(
-        process_pb2.SetConfigReq(
+        core_pb2.SetConfigReq(
             leader_id=str(user.id),
             initial_ms=cmd.initial_ms,
             increment_ms=cmd.increment_ms,
@@ -115,24 +115,24 @@ async def _h_lobby_config(stub: Any, user: User, cmd: LobbyConfig) -> ServerEven
 
 
 async def _h_queue_start(stub: Any, user: User, _: Any) -> ServerEvent | None:
-    resp = await stub.StartMatchmaking(process_pb2.UserRef(user_id=str(user.id)))
+    resp = await stub.StartMatchmaking(core_pb2.UserRef(user_id=str(user.id)))
     return _status_error(resp)
 
 
 async def _h_queue_cancel(stub: Any, user: User, _: Any) -> ServerEvent | None:
-    resp = await stub.CancelMatchmaking(process_pb2.UserRef(user_id=str(user.id)))
+    resp = await stub.CancelMatchmaking(core_pb2.UserRef(user_id=str(user.id)))
     return _status_error(resp)
 
 
 async def _h_game_move(stub: Any, user: User, cmd: GameMove) -> ServerEvent | None:
     resp = await stub.MakeMove(
-        process_pb2.MoveReq(user_id=str(user.id), uci=cmd.uci)
+        core_pb2.MoveReq(user_id=str(user.id), uci=cmd.uci)
     )
     return _status_error(resp)
 
 
 async def _h_game_resign(stub: Any, user: User, _: Any) -> ServerEvent | None:
-    resp = await stub.Resign(process_pb2.UserRef(user_id=str(user.id)))
+    resp = await stub.Resign(core_pb2.UserRef(user_id=str(user.id)))
     return _status_error(resp)
 
 
@@ -153,7 +153,7 @@ HANDLERS: dict[str, Handler] = {
 
 
 async def dispatch(
-    stub: process_pb2_grpc.ProcessServiceStub,
+    stub: core_pb2_grpc.CoreServiceStub,
     user: User,
     raw: str,
 ) -> ServerEvent | None:
@@ -175,7 +175,7 @@ async def dispatch(
         return _grpc_error(exc)
 
 
-def _lobby_from_pb(lobby: process_pb2.LobbyState, user_id: UUID) -> LobbyPayload:
+def _lobby_from_pb(lobby: core_pb2.LobbyState, user_id: UUID) -> LobbyPayload:
     seats: list[Any] = []
     your_pos: int | None = None
     uid_str = str(user_id)
@@ -209,7 +209,7 @@ def _lobby_from_pb(lobby: process_pb2.LobbyState, user_id: UUID) -> LobbyPayload
     )
 
 
-def _game_from_pb(game: process_pb2.GameState) -> GameStatePayload:
+def _game_from_pb(game: core_pb2.GameState) -> GameStatePayload:
     pockets_raw = json.loads(game.pockets.json) if game.pockets.json else {
         "b0": {"w": {}, "b": {}},
         "b1": {"w": {}, "b": {}},
@@ -237,7 +237,7 @@ def _game_from_pb(game: process_pb2.GameState) -> GameStatePayload:
     )
 
 
-def snapshot_from_pb(resp: process_pb2.SnapshotResp, user_id: UUID) -> ServerEvent:
+def snapshot_from_pb(resp: core_pb2.SnapshotResp, user_id: UUID) -> ServerEvent:
     if not resp.ok:
         return ErrorEvent(
             code=resp.error_code or "snapshot_failed",

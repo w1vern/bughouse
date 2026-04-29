@@ -14,11 +14,11 @@ from shared.infrastructure import (
     get_redis_client,
     setup_logger
 )
-from shared.protobuf import process_pb2_grpc
+from shared.protobuf import core_pb2_grpc
 
 from .game.manager import GameManager
 from .lobby.manager import LobbyManager
-from .main import ProcessServiceServicer
+from .main import CoreServiceServicer
 from .notifier import Notifier
 from .queue.manager import QueueManager
 from .session import UserSessionIndex
@@ -41,14 +41,14 @@ async def main() -> None:
         notifier=notifier,
         session_factory=session_manager.context_session,
         ranking=env_config.ranking,
-        abort_timeout_sec=env_config.process.abort_timeout_sec,
+        abort_timeout_sec=env_config.core.abort_timeout_sec,
     )
     queue_mgr = QueueManager(
         lobby_mgr=lobby_mgr,
         game_mgr=game_mgr,
         notifier=notifier,
         user_repo_factory=_user_repo_ctx,
-        tick_sec=env_config.process.queue_tick_sec,
+        tick_sec=env_config.core.queue_tick_sec,
         ranking=env_config.ranking,
     )
     sessions = UserSessionIndex(lobby_mgr, game_mgr)
@@ -56,11 +56,11 @@ async def main() -> None:
     queue_mgr.start_loop()
 
     server = aio.server()
-    process_pb2_grpc.add_ProcessServiceServicer_to_server(
-        ProcessServiceServicer(lobby_mgr, queue_mgr, game_mgr, notifier, sessions),
+    core_pb2_grpc.add_CoreServiceServicer_to_server(
+        CoreServiceServicer(lobby_mgr, queue_mgr, game_mgr, notifier, sessions),
         server,
     )
-    bind = f"0.0.0.0:{env_config.process.grpc_port}"
+    bind = f"0.0.0.0:{env_config.core.port}"
     server.add_insecure_port(bind)
     await server.start()
     logger.info("gRPC server started on %s", bind)

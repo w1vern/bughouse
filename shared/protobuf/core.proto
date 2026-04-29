@@ -1,7 +1,7 @@
 syntax = "proto3";
 package process;
 
-service ProcessService {
+service CoreService {
   // Lobby
   rpc CreateLobby(UserRef)          returns (LobbyResp);
   rpc JoinLobby(JoinReq)            returns (LobbyResp);

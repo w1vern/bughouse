@@ -21,7 +21,7 @@ class DBSettings(BaseModel):
 
     user: str = ""
     password: str = ""
-    ip: str = ""
+    host: str = ""
     port: int = 0
     name: str = ""
 
@@ -30,7 +30,7 @@ class RedisSettings(BaseModel):
     model_config = SettingsConfigDict(
         populate_by_name=True)
 
-    ip: str = ""
+    host: str = ""
     port: int = 0
     login: str | None = None
     password: str | None = None
@@ -66,12 +66,12 @@ class SuperUser(BaseModel):
     password: str = ""
 
 
-class ProcessSettings(BaseModel):
+class CoreSettings(BaseModel):
     model_config = SettingsConfigDict(
         populate_by_name=True)
 
-    grpc_host: str = "process"
-    grpc_port: int = 50051
+    host: str = "core"
+    port: int = 50051
     queue_tick_sec: float = 2.0
     abort_timeout_sec: float = 30.0
 
@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     backend: BackendSettings = BackendSettings()
     superuser: SuperUser = SuperUser()
     ranking: RankingParams = RankingParams()
-    process: ProcessSettings = ProcessSettings()
+    core: CoreSettings = CoreSettings()
     boot_level: BootLevel = BootLevel.DEBUG
 
 

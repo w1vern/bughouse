@@ -9,12 +9,12 @@ from redis.asyncio import Redis
 from shared.database import User
 from shared.events import ErrorEvent, ServerEvent
 from shared.infrastructure import setup_logger
-from shared.protobuf import process_pb2, process_pb2_grpc
+from shared.protobuf import core_pb2, core_pb2_grpc
 
 from ..depends import get_db_user
 from ..redis import get_redis_client
 from .dispatcher import dispatch, snapshot_from_pb
-from .grpc_client import get_process_stub
+from .grpc_client import get_core_stub
 
 logger = setup_logger(__name__)
 
@@ -61,13 +61,13 @@ async def _refresh_lock_loop(redis: Redis, key: str, conn_uuid: str) -> None:
 
 
 async def _send_snapshot(
-    stub: process_pb2_grpc.ProcessServiceStub,
+    stub: core_pb2_grpc.CoreServiceStub,
     user: User,
     websocket: WebSocket,
 ) -> None:
     try:
-        resp: process_pb2.SnapshotResp = await stub.GetUserSnapshot(
-            process_pb2.UserRef(user_id=str(user.id))
+        resp: core_pb2.SnapshotResp = await stub.GetUserSnapshot(
+            core_pb2.UserRef(user_id=str(user.id))
         )
     except grpc.aio.AioRpcError as exc:
         logger.warning("GetUserSnapshot failed for user=%s: %s", user.id, exc)
@@ -106,7 +106,7 @@ async def _pubsub_loop(redis: Redis, user: User, websocket: WebSocket) -> None:
 
 
 async def _client_loop(
-    stub: process_pb2_grpc.ProcessServiceStub,
+    stub: core_pb2_grpc.CoreServiceStub,
     user: User,
     websocket: WebSocket,
 ) -> None:
@@ -116,14 +116,15 @@ async def _client_loop(
             await _send_event(websocket, reply)
 
 
-@router.websocket(path="", name="WebSocket")
+@router.websocket(path="")
 async def websocket_endpoint(
     websocket: WebSocket,
     user: User = Depends(get_db_user),
     redis: Redis = Depends(get_redis_client),
-    stub: process_pb2_grpc.ProcessServiceStub = Depends(get_process_stub),
+    stub: core_pb2_grpc.CoreServiceStub = Depends(get_core_stub),
 ) -> None:
     await websocket.accept()
+    logger.debug("connected")
 
     key = f"{ONLINE_KEY_PREFIX}{user.id}"
     conn_uuid = uuid4().hex

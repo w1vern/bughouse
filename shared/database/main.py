@@ -78,7 +78,7 @@ def get_db_url(user: str,
 DATABASE_URL = get_db_url(
     env_config.db.user,
     env_config.db.password,
-    env_config.db.ip,
+    env_config.db.host,
     env_config.db.port,
     env_config.db.name
 )
