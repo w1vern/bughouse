@@ -13,4 +13,7 @@ logs/
 !README.md
 result.tree
 
+openapi.json
+ws-docs.json
+
 test.py
