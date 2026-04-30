@@ -133,9 +133,10 @@ async def websocket_endpoint(
         await websocket.close(code=4409, reason="already_connected")
         return
 
+    await _send_snapshot(stub, user, websocket)
+
     tasks: list[asyncio.Task[None]] = [
         asyncio.create_task(_refresh_lock_loop(redis, key, conn_uuid), name="ws-refresh"),
-        asyncio.create_task(_send_snapshot(stub, user, websocket), name="ws-snapshot"),
         asyncio.create_task(_pubsub_loop(redis, user, websocket), name="ws-pubsub"),
         asyncio.create_task(_client_loop(stub, user, websocket), name="ws-client"),
     ]
