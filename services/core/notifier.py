@@ -108,6 +108,7 @@ class Notifier:
     async def publish(self, user_id: str | UUID, event: ServerEvent) -> None:
         channel = f"ws:user:{user_id}"
         message = event.model_dump_json()
+        logger.debug("redis publish -> channel=%s event=%s", channel, event.type)
         try:
             await self._redis.publish(channel, message)
         except Exception:
@@ -122,6 +123,8 @@ class Notifier:
             await self.publish(uid, event)
 
     async def publish_lobby_state(self, lobby: Lobby) -> None:
+        seated = [s.user_id for s in lobby.seats if s is not None]
+        logger.debug("publish_lobby_state: lobby_id=%s state=%s recipients=%s", lobby.id, lobby.state, seated)
         for pos, seat in enumerate(lobby.seats):
             if seat is None:
                 continue
@@ -132,31 +135,42 @@ class Notifier:
         user_ids: Iterable[str | UUID],
         reason: str,
     ) -> None:
-        await self._fanout(user_ids, LobbyDeleted(reason=reason))
+        ids = list(user_ids)
+        logger.debug("publish_lobby_deleted: reason=%s recipients=%s", reason, ids)
+        await self._fanout(ids, LobbyDeleted(reason=reason))
 
     async def publish_queue_started(self, user_ids: Iterable[str | UUID]) -> None:
-        await self._fanout(user_ids, QueueStarted())
+        ids = list(user_ids)
+        logger.debug("publish_queue_started: recipients=%s", ids)
+        await self._fanout(ids, QueueStarted())
 
     async def publish_queue_cancelled(self, user_ids: Iterable[str | UUID]) -> None:
-        await self._fanout(user_ids, QueueCancelled())
+        ids = list(user_ids)
+        logger.debug("publish_queue_cancelled: recipients=%s", ids)
+        await self._fanout(ids, QueueCancelled())
 
     async def publish_match_found(
         self,
         user_ids: Iterable[str | UUID],
         game_id: str,
     ) -> None:
-        await self._fanout(user_ids, QueueMatchFound(game_id=game_id))
+        ids = list(user_ids)
+        logger.debug("publish_match_found: game_id=%s recipients=%s", game_id, ids)
+        await self._fanout(ids, QueueMatchFound(game_id=game_id))
 
     async def publish_game_start(
         self,
         game: GameObj,
         per_user_events: dict[str, GameStart],
     ) -> None:
+        logger.debug("publish_game_start: game_id=%s recipients=%s", game.id, game.user_ids)
         for uid in game.user_ids:
             await self.publish(uid, per_user_events[uid])
 
     async def publish_move(self, game: GameObj, event: GameMoveEvent) -> None:
+        logger.debug("publish_move: game_id=%s uci=%s recipients=%s", game.id, event.uci, game.user_ids)
         await self._fanout(game.user_ids, event)
 
     async def publish_game_end(self, game: GameObj, event: GameEnd) -> None:
+        logger.debug("publish_game_end: game_id=%s result=%s reason=%s recipients=%s", game.id, event.result, event.reason, game.user_ids)
         await self._fanout(game.user_ids, event)
