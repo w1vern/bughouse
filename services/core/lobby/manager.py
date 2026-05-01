@@ -23,7 +23,7 @@ class LobbyManager:
         user_repo_factory: UserRepoFactory,
     ) -> None:
         self._lobbies: dict[UUID, Lobby] = {}
-        self._user_to_lobby: dict[UUID, UUID] = {}
+        self._user_to_lobby: dict[str, UUID] = {}
         self._notifier = notifier
         self._user_repo_factory = user_repo_factory
 
@@ -32,132 +32,116 @@ class LobbyManager:
     def get(self, lobby_id: UUID) -> Lobby | None:
         return self._lobbies.get(lobby_id)
 
-    def get_by_user(self, user_id: UUID) -> Lobby | None:
-        lobby_id = self._user_to_lobby.get(user_id)
+    def get_by_user(self, username: str) -> Lobby | None:
+        lobby_id = self._user_to_lobby.get(username)
         if lobby_id is None:
             return None
         return self._lobbies.get(lobby_id)
 
     # ---------------- Mutations ----------------
 
-    async def create(self, user_id: UUID) -> Lobby:
-        if user_id in self._user_to_lobby:
+    async def create(self, username: str, config: LobbyConfig | None = None) -> Lobby:
+        if username in self._user_to_lobby:
             raise LobbyError.user_already_in_lobby()
-        seat = await self._load_seat(user_id)
+        cfg = config or LobbyConfig()
+        self._validate_config(cfg)
+        seat = await self._load_seat(username)
         lobby = Lobby(
             id=uuid4(),
-            leader_id=user_id,
+            leader=username,
             seats=[seat, None, None, None],
-            config=LobbyConfig(),
+            config=cfg,
             state=LobbyState.IDLE,
         )
         self._lobbies[lobby.id] = lobby
-        self._user_to_lobby[user_id] = lobby.id
-        await self._notifier.publish_lobby_state(lobby)
+        self._user_to_lobby[username] = lobby.id
+        await self._notifier.mark_busy(username)
+        await self._notifier.publish_lobby_join(lobby, username)
         return lobby
 
-    async def join(self, lobby_id: UUID, user_id: UUID) -> Lobby:
+    async def join_at(
+        self,
+        lobby_id: UUID,
+        username: str,
+        idx: int,
+    ) -> Lobby:
         lobby = self._require_lobby(lobby_id)
         self._ensure_mutable(lobby)
-        if user_id in self._user_to_lobby:
+        if username in self._user_to_lobby:
             raise LobbyError.user_already_in_lobby()
-        free_pos = self._first_free_slot(lobby)
-        if free_pos is None:
-            raise LobbyError.lobby_full()
-        seat = await self._load_seat(user_id)
-        lobby.seats[free_pos] = seat
-        self._user_to_lobby[user_id] = lobby.id
-        await self._notifier.publish_lobby_state(lobby)
+        if idx not in (0, 1, 2, 3):
+            raise LobbyError.seat_out_of_range()
+        if lobby.seats[idx] is not None:
+            raise LobbyError.seat_occupied()
+        seat = await self._load_seat(username)
+        lobby.seats[idx] = seat
+        self._user_to_lobby[username] = lobby.id
+        await self._notifier.mark_busy(username)
+        await self._notifier.publish_lobby_join(lobby, username)
+        await self._notifier.publish_player_slot_update(
+            lobby, idx, seat, exclude=username,
+        )
         return lobby
 
-    async def leave(self, lobby_id: UUID, user_id: UUID) -> Lobby | None:
+    async def leave(self, username: str, *, kicked: bool = False) -> Lobby | None:
+        lobby_id = self._user_to_lobby.get(username)
+        if lobby_id is None:
+            raise LobbyError.user_not_in_lobby()
         lobby = self._require_lobby(lobby_id)
         self._ensure_mutable(lobby)
-        pos = lobby.seat_of(user_id)
+        pos = lobby.seat_of(username)
         if pos is None:
             raise LobbyError.user_not_in_lobby()
         lobby.seats[pos] = None
-        self._user_to_lobby.pop(user_id, None)
+        self._user_to_lobby.pop(username, None)
+        await self._notifier.mark_idle_if_online(username)
+
+        if kicked:
+            await self._notifier.publish_lobby_kicked(username)
 
         if lobby.size == 0:
             del self._lobbies[lobby.id]
-            await self._notifier.publish_lobby_deleted([user_id], "empty")
             return None
 
-        if lobby.leader_id == user_id:
+        new_leader = False
+        if lobby.leader == username:
             self._assign_new_leader(lobby)
-        await self._notifier.publish_lobby_state(lobby)
+            new_leader = True
+
+        await self._notifier.publish_player_leave(
+            lobby, pos, "kick" if kicked else "leave",
+        )
+        if new_leader:
+            await self._notifier.publish_lobby_full_state(lobby)
         return lobby
 
-    async def seat(
-        self,
-        lobby_id: UUID,
-        leader_id: UUID,
-        target_user_id: UUID,
-        pos: int,
-    ) -> Lobby:
-        lobby = self._require_lobby(lobby_id)
-        self._ensure_mutable(lobby)
-        self._ensure_leader(lobby, leader_id)
-        if pos not in (1, 2, 3):
-            raise LobbyError.seat_out_of_range()
-        current = lobby.seat_of(target_user_id)
-        if current is None:
-            raise LobbyError.target_not_in_lobby()
-        if current == pos:
-            return lobby
-        if lobby.seats[pos] is not None:
-            raise LobbyError.seat_occupied()
-        lobby.seats[pos] = lobby.seats[current]
-        lobby.seats[current] = None
-        await self._notifier.publish_lobby_state(lobby)
-        return lobby
-
-    async def unseat(self, lobby_id: UUID, leader_id: UUID, pos: int) -> Lobby:
-        lobby = self._require_lobby(lobby_id)
-        self._ensure_mutable(lobby)
-        self._ensure_leader(lobby, leader_id)
-        if pos not in (1, 2, 3):
-            raise LobbyError.seat_out_of_range()
-        occupant = lobby.seats[pos]
-        if occupant is None:
+    async def kick(self, leader_username: str, target: str) -> Lobby | None:
+        lobby_id = self._user_to_lobby.get(leader_username)
+        if lobby_id is None:
             raise LobbyError.user_not_in_lobby()
-        lobby.seats[pos] = None
-        self._user_to_lobby.pop(occupant.user_id, None)
-        await self._notifier.publish_lobby_state(lobby)
-        return lobby
-
-    async def kick(
-        self,
-        lobby_id: UUID,
-        leader_id: UUID,
-        target_user_id: UUID,
-    ) -> Lobby:
         lobby = self._require_lobby(lobby_id)
         self._ensure_mutable(lobby)
-        self._ensure_leader(lobby, leader_id)
-        if target_user_id == leader_id:
+        self._ensure_leader(lobby, leader_username)
+        if target == leader_username:
             raise LobbyError.cannot_kick_self()
-        pos = lobby.seat_of(target_user_id)
-        if pos is None:
+        if lobby.seat_of(target) is None:
             raise LobbyError.target_not_in_lobby()
-        lobby.seats[pos] = None
-        self._user_to_lobby.pop(target_user_id, None)
-        await self._notifier.publish_lobby_state(lobby)
-        return lobby
+        return await self.leave(target, kicked=True)
 
     async def set_config(
         self,
-        lobby_id: UUID,
-        leader_id: UUID,
+        leader_username: str,
         cfg: LobbyConfig,
     ) -> Lobby:
+        lobby_id = self._user_to_lobby.get(leader_username)
+        if lobby_id is None:
+            raise LobbyError.user_not_in_lobby()
         lobby = self._require_lobby(lobby_id)
         self._ensure_mutable(lobby)
-        self._ensure_leader(lobby, leader_id)
+        self._ensure_leader(lobby, leader_username)
         self._validate_config(cfg)
         lobby.config = cfg
-        await self._notifier.publish_lobby_state(lobby)
+        await self._notifier.publish_lobby_config(lobby)
         return lobby
 
     # ---------------- State transitions ----------------
@@ -170,14 +154,13 @@ class LobbyManager:
         lobby = self._require_lobby(lobby_id)
         lobby.state = LobbyState.IDLE
 
-    async def dissolve(self, lobby_id: UUID, reason: str) -> None:
+    async def dissolve(self, lobby_id: UUID) -> None:
         lobby = self._lobbies.pop(lobby_id, None)
         if lobby is None:
             return
-        user_ids = lobby.user_ids
-        for uid in user_ids:
-            self._user_to_lobby.pop(uid, None)
-        await self._notifier.publish_lobby_deleted(user_ids, reason)
+        for username in lobby.usernames:
+            self._user_to_lobby.pop(username, None)
+            await self._notifier.mark_idle_if_online(username)
 
     # ---------------- Internals ----------------
 
@@ -191,20 +174,14 @@ class LobbyManager:
         if lobby.state == LobbyState.IN_QUEUE:
             raise LobbyError.cannot_modify_while_in_queue()
 
-    def _ensure_leader(self, lobby: Lobby, user_id: UUID) -> None:
-        if lobby.leader_id != user_id:
+    def _ensure_leader(self, lobby: Lobby, username: str) -> None:
+        if lobby.leader != username:
             raise LobbyError.not_leader()
-
-    def _first_free_slot(self, lobby: Lobby) -> int | None:
-        for i, s in enumerate(lobby.seats):
-            if s is None:
-                return i
-        return None
 
     def _assign_new_leader(self, lobby: Lobby) -> None:
         for s in lobby.seats:
             if s is not None:
-                lobby.leader_id = s.user_id
+                lobby.leader = s.username
                 return
 
     def _validate_config(self, cfg: LobbyConfig) -> None:
@@ -213,9 +190,9 @@ class LobbyManager:
         if cfg.increment_ms < 0:
             raise LobbyError.bad_config("increment_ms must be non-negative")
 
-    async def _load_seat(self, user_id: UUID) -> Seat:
+    async def _load_seat(self, username: str) -> Seat:
         async with self._user_repo_factory() as repo:
-            user = await repo.get_by_id(user_id)
+            user = await repo.get_by_username(username)
         if user is None:
             raise LobbyError.user_not_found()
-        return Seat(user_id=user.id, username=user.username, rating=user.rating)
+        return Seat(username=user.username, rating=user.rating)

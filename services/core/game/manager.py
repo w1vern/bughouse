@@ -4,35 +4,22 @@ import asyncio
 import time
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
-from typing import Any
 from uuid import UUID, uuid4
 
 import chess
 import trueskill
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.database import User, GameRepository, UserRepository
-from shared.events import GameEnd, GameMoveEvent, GameStart
-from shared.infrastructure import setup_logger, RankingParams
+from shared.database import GameRepository, User, UserRepository
+from shared.infrastructure import RankingParams, setup_logger
 
 from ..lobby.models import LobbyConfig, Seat
-from ..notifier import (
-    Notifier,
-    clocks_from_raw,
-    pockets_from_raw,
-    reason_str,
-    result_str,
-)
+from ..notifier import Notifier, result_status
 from .board import BughouseBoards
 from .clocks import Clocks, FlagCallback
 from .errors import GameError
-from .models import (
-    EndReason,
-    GameObj,
-    GameResult,
-    MoveRecord,
-    PlayerRef
-)
+from .models import EndReason, GameObj, GameResult, MoveRecord, PlayerRef
+from .state import build_bughouse
 
 logger = setup_logger(__name__)
 
@@ -47,15 +34,9 @@ def _pos_to_color(pos: int) -> chess.Color:
     return chess.WHITE if pos % 2 == 0 else chess.BLACK
 
 
-def _pos_of_player(game: GameObj, user_id: UUID) -> int:
-    try:
-        return game.pos_of(user_id)
-    except KeyError as exc:
-        raise GameError.not_in_this_game() from exc
-
-
 def _loser_team_from_pos(pos: int) -> GameResult:
-    if pos in (1, 2):
+    # team A = positions 0 and 3; team B = positions 1 and 2
+    if pos in (0, 3):
         return GameResult.TEAM_A
     return GameResult.TEAM_B
 
@@ -69,7 +50,7 @@ class GameManager:
         abort_timeout_sec: float,
     ) -> None:
         self._games: dict[UUID, GameObj] = {}
-        self._user_to_game: dict[UUID, UUID] = {}
+        self._user_to_game: dict[str, UUID] = {}
         self._notifier = notifier
         self._session_factory = session_factory
         self._ranking = ranking
@@ -83,8 +64,8 @@ class GameManager:
             draw_probability=0.0,
         )
 
-    def get_game_by_user(self, user_id: UUID) -> GameObj | None:
-        game_id = self._user_to_game.get(user_id)
+    def get_game_by_user(self, username: str) -> GameObj | None:
+        game_id = self._user_to_game.get(username)
         if game_id is None:
             return None
         return self._games.get(game_id)
@@ -98,12 +79,11 @@ class GameManager:
             user_repo = UserRepository(session)
             players_list: list[PlayerRef] = []
             for seat in seats:
-                user = await user_repo.get_by_id(seat.user_id)
+                user = await user_repo.get_by_username(seat.username)
                 if user is None:
-                    raise GameError("user_not_found", f"user {seat.user_id}")
+                    raise GameError("user_not_found", f"user {seat.username}")
                 players_list.append(
                     PlayerRef(
-                        user_id=user.id,
                         username=user.username,
                         rating_before=user.rating,
                         sigma_before=user.sigma,
@@ -127,13 +107,14 @@ class GameManager:
         )
         self._games[game.id] = game
         for p in players:
-            self._user_to_game[p.user_id] = game.id
+            self._user_to_game[p.username] = game.id
+            await self._notifier.mark_busy(p.username)
 
         flag_cb = self._make_flag_cb(game.id)
         await game.clocks.start(0, chess.WHITE, flag_cb)
         await game.clocks.start(1, chess.WHITE, flag_cb)
 
-        await self._publish_start(game)
+        await self._notifier.publish_game_start(game.usernames, build_bughouse(game))
 
         self._abort_tasks[game.id] = asyncio.create_task(
             self._abort_watchdog(game.id)
@@ -143,23 +124,25 @@ class GameManager:
 
     async def make_move(
         self,
-        game_id: UUID,
-        user_id: UUID,
+        username: str,
         uci: str,
     ) -> None:
-        game = self._games.get(game_id)
+        game = self.get_game_by_user(username)
         if game is None:
             raise GameError.not_found()
         if game.finished:
             raise GameError.already_finished()
-        pos = _pos_of_player(game, user_id)
+        try:
+            pos = game.pos_of(username)
+        except KeyError as exc:
+            raise GameError.not_in_this_game() from exc
         board_idx = _pos_to_board(pos)
         expected_color = _pos_to_color(pos)
         if game.boards.turn(board_idx) != expected_color:
             raise GameError.not_your_turn()
 
         try:
-            result = game.boards.push(board_idx, uci)
+            game.boards.push(board_idx, uci)
         except (chess.IllegalMoveError, chess.InvalidMoveError, ValueError) as exc:
             raise GameError.illegal_move(str(exc)) from exc
 
@@ -167,7 +150,7 @@ class GameManager:
         game.moves.append(
             MoveRecord(
                 board=board_idx,
-                user_id=user_id,
+                username=username,
                 uci=uci,
                 ms_spent=ms_spent,
                 index=len(game.moves),
@@ -182,39 +165,37 @@ class GameManager:
             loser_color = game.boards.turn(board_idx)
             loser_pos = self._pos_for(board_idx, loser_color)
             loser_team = _loser_team_from_pos(loser_pos)
-            winner = GameResult.TEAM_B if loser_team == GameResult.TEAM_A else GameResult.TEAM_A
+            winner = (
+                GameResult.TEAM_B if loser_team == GameResult.TEAM_A else GameResult.TEAM_A
+            )
+            await self._publish_move(game, board_idx, uci)
             await self._finish(game, winner, EndReason.CHECKMATE)
             return
 
         if game.boards.is_draw_rule():
+            await self._publish_move(game, board_idx, uci)
             await self._finish(game, GameResult.DRAW, EndReason.DRAW_RULE)
             return
 
         next_color = game.boards.turn(board_idx)
         await game.clocks.start(board_idx, next_color, self._make_flag_cb(game.id))
 
-        next_pos = self._pos_for(board_idx, next_color)
-        next_user_id = game.players[next_pos].user_id
+        await self._publish_move(game, board_idx, uci)
 
-        event = GameMoveEvent(
-            board=board_idx,
-            uci=uci,
-            fen_after=result.fen_after,
-            pockets_after=pockets_from_raw(result.pockets_after),
-            clocks=clocks_from_raw(game.clocks.snapshot()),
-            next_mover_id=str(next_user_id),
-        )
-        await self._notifier.publish_move(game, event)
-
-    async def resign(self, game_id: UUID, user_id: UUID) -> None:
-        game = self._games.get(game_id)
+    async def resign(self, username: str) -> None:
+        game = self.get_game_by_user(username)
         if game is None:
             raise GameError.not_found()
         if game.finished:
             raise GameError.already_finished()
-        pos = _pos_of_player(game, user_id)
+        try:
+            pos = game.pos_of(username)
+        except KeyError as exc:
+            raise GameError.not_in_this_game() from exc
         loser_team = _loser_team_from_pos(pos)
-        winner = GameResult.TEAM_B if loser_team == GameResult.TEAM_A else GameResult.TEAM_A
+        winner = (
+            GameResult.TEAM_B if loser_team == GameResult.TEAM_A else GameResult.TEAM_A
+        )
         await self._finish(game, winner, EndReason.RESIGN)
 
     async def handle_flag(
@@ -228,35 +209,20 @@ class GameManager:
             return
         flagged_pos = self._pos_for(board_idx, color)
         loser_team = _loser_team_from_pos(flagged_pos)
-        winner = GameResult.TEAM_B if loser_team == GameResult.TEAM_A else GameResult.TEAM_A
+        winner = (
+            GameResult.TEAM_B if loser_team == GameResult.TEAM_A else GameResult.TEAM_A
+        )
         await self._finish(game, winner, EndReason.TIMEOUT)
 
-    def get_snapshot(self, game_id: UUID, user_id: UUID) -> dict[str, Any]:
-        game = self._games.get(game_id)
-        if game is None:
-            raise GameError.not_found()
-        pos = _pos_of_player(game, user_id)
-        board_idx = _pos_to_board(pos)
-        color = _pos_to_color(pos)
-        partner_pos = self._partner_pos(pos)
-        opponents = [
-            str(game.players[i].user_id) for i in range(4) if i != pos and i != partner_pos
-        ]
-        base = game.boards.to_snapshot(board_idx)
-        base.update(
-            {
-                "game_id": str(game.id),
-                "board": board_idx,
-                "color": int(color),
-                "partner_id": str(game.players[partner_pos].user_id),
-                "opponents": opponents,
-                "clocks": game.clocks.snapshot(),
-                "your_turn": game.boards.turn(board_idx) == color,
-            }
-        )
-        return base
-
     # ---------------- Internals ----------------
+
+    async def _publish_move(self, game: GameObj, board_idx: int, uci: str) -> None:
+        snap = game.clocks.snapshot()
+        if board_idx == 0:
+            w_ms, b_ms = snap["b0w"], snap["b0b"]
+        else:
+            w_ms, b_ms = snap["b1w"], snap["b1b"]
+        await self._notifier.publish_move(game.usernames, board_idx, uci, w_ms, b_ms)
 
     def _make_flag_cb(self, game_id: UUID) -> FlagCallback:
         async def cb(board_idx: int, color: chess.Color) -> None:
@@ -267,34 +233,6 @@ class GameManager:
     def _pos_for(self, board_idx: int, color: chess.Color) -> int:
         color_idx = 0 if color == chess.WHITE else 1
         return board_idx * 2 + color_idx
-
-    def _partner_pos(self, pos: int) -> int:
-        # TEAM_A = {0, 3}; TEAM_B = {1, 2}
-        partners = {0: 3, 3: 0, 1: 2, 2: 1}
-        return partners[pos]
-
-    async def _publish_start(self, game: GameObj) -> None:
-        per_user: dict[str, GameStart] = {}
-        for pos in range(4):
-            board_idx = _pos_to_board(pos)
-            color = _pos_to_color(pos)
-            partner_pos = self._partner_pos(pos)
-            opponents = [
-                str(game.players[i].user_id)
-                for i in range(4)
-                if i != pos and i != partner_pos
-            ]
-            uid = str(game.players[pos].user_id)
-            per_user[uid] = GameStart(
-                game_id=str(game.id),
-                board=board_idx,
-                color=int(color),
-                partner_id=str(game.players[partner_pos].user_id),
-                opponents=opponents,
-                initial_ms=game.config.initial_ms,
-                increment_ms=game.config.increment_ms,
-            )
-        await self._notifier.publish_game_start(game, per_user)
 
     async def _abort_watchdog(self, game_id: UUID) -> None:
         try:
@@ -328,7 +266,8 @@ class GameManager:
             abort.cancel()
 
         for p in game.players:
-            self._user_to_game.pop(p.user_id, None)
+            self._user_to_game.pop(p.username, None)
+            await self._notifier.mark_idle_if_online(p.username)
 
         diffs = (0.0, 0.0, 0.0, 0.0)
         try:
@@ -336,14 +275,12 @@ class GameManager:
         except Exception:
             logger.exception("failed to persist game %s", game.id)
 
-        event = GameEnd(
-            result=result_str(result),
-            reason=reason_str(reason),
-            rating_deltas={
-                str(game.players[i].user_id): diffs[i] for i in range(4)
-            },
+        rating_changes = {
+            game.players[i].username: diffs[i] for i in range(4)
+        }
+        await self._notifier.publish_game_end(
+            game.usernames, result_status(result), rating_changes
         )
-        await self._notifier.publish_game_end(game, event)
 
         self._games.pop(game.id, None)
 
@@ -356,14 +293,11 @@ class GameManager:
             user_repo = UserRepository(session)
             game_repo = GameRepository(session)
 
-            class _User:
-                rating: float
-                sigma: float
             users: list[User] = []
             for p in game.players:
-                u = await user_repo.get_by_id(p.user_id)
+                u = await user_repo.get_by_username(p.username)
                 if u is None:
-                    raise GameError("user_not_found", f"user {p.user_id}")
+                    raise GameError("user_not_found", f"user {p.username}")
                 users.append(u)
 
             for pos, user in enumerate(users):
@@ -403,7 +337,8 @@ class GameManager:
                 )
 
             moves_payload: list[tuple[str, float, int, UUID]] = [
-                (m.uci, m.ms_spent / 1000.0, m.board, m.user_id) for m in game.moves
+                (m.uci, m.ms_spent / 1000.0, m.board, users[game.pos_of(m.username)].id)
+                for m in game.moves
             ]
 
             await game_repo.create(

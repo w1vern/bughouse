@@ -26,7 +26,7 @@ UserRepoFactory = Callable[[], AbstractAsyncContextManager[UserRepository]]
 class _LobbyManagerProto(Protocol):
     def mark_in_queue(self, lobby_id: UUID) -> None: ...
     def mark_idle(self, lobby_id: UUID) -> None: ...
-    async def dissolve(self, lobby_id: UUID, reason: str) -> None: ...
+    async def dissolve(self, lobby_id: UUID) -> None: ...
 
 
 class _GameManagerProto(Protocol):
@@ -76,7 +76,7 @@ class QueueManager:
             for i, seat in enumerate(lobby.seats):
                 if seat is None:
                     continue
-                user = await repo.get_by_id(seat.user_id)
+                user = await repo.get_by_username(seat.username)
                 if user is None:
                     raise QueueError.bad_lobby_state()
                 sigmas[i] = user.sigma
@@ -100,16 +100,20 @@ class QueueManager:
         )
         self._entries[lobby.id] = entry
         self._lobby_mgr.mark_in_queue(lobby.id)
-        user_ids = [str(s.user_id) for s in lobby.seats if s is not None]
-        await self._notifier.publish_queue_started(user_ids)
+        await self._notifier.publish_queue_started(lobby)
 
     async def cancel(self, lobby_id: UUID) -> None:
         entry = self._entries.pop(lobby_id, None)
         if entry is None:
             raise QueueError.not_in_queue()
         self._lobby_mgr.mark_idle(lobby_id)
-        user_ids = [str(s.user_id) for s in entry.seats if s is not None]
-        await self._notifier.publish_queue_cancelled(user_ids)
+        # the lobby still exists; resolve via lobby manager for fanout
+        from ..lobby.manager import LobbyManager  # avoid cyclic import at module load
+
+        if isinstance(self._lobby_mgr, LobbyManager):
+            lobby = self._lobby_mgr.get(lobby_id)
+            if lobby is not None:
+                await self._notifier.publish_queue_cancelled(lobby)
 
     def start_loop(self) -> None:
         if self._task is not None and not self._task.done():
@@ -160,14 +164,12 @@ class QueueManager:
         placement: Placement,
     ) -> None:
         slot_seats: list[Seat | None] = [None, None, None, None]
-        user_ids: list[UUID] = []
         for entry, slot_indices in zip(entries, placement):
             positions = entry.positions
             for entry_pos, slot_idx in zip(positions, slot_indices):
                 seat = entry.seats[entry_pos]
                 assert seat is not None
                 slot_seats[slot_idx] = seat
-                user_ids.append(seat.user_id)
 
         seats_tuple: tuple[Seat, Seat, Seat, Seat] = (
             slot_seats[0],  # type: ignore[assignment]
@@ -176,11 +178,8 @@ class QueueManager:
             slot_seats[3],  # type: ignore[assignment]
         )
         config = entries[0].config
-        game_id = await self._game_mgr.create_game(seats_tuple, config)
-
-        str_ids = [str(uid) for uid in user_ids]
-        await self._notifier.publish_match_found(str_ids, str(game_id))
+        await self._game_mgr.create_game(seats_tuple, config)
 
         for entry in entries:
             self._entries.pop(entry.lobby_id, None)
-            await self._lobby_mgr.dissolve(entry.lobby_id, "game_started")
+            await self._lobby_mgr.dissolve(entry.lobby_id)

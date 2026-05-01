@@ -112,7 +112,7 @@ class BughouseBoards:
             if pt != chess.KING and pocket.count(pt) > 0
         }
 
-    def _board_pockets(self, board_idx: int) -> BoardPockets:
+    def board_pockets(self, board_idx: int) -> BoardPockets:
         b = self.boards[board_idx]
         return {
             "w": self._pocket_to_dict(b.pockets[chess.WHITE]),
@@ -120,7 +120,7 @@ class BughouseBoards:
         }
 
     def _all_pockets(self) -> PocketsDict:
-        return {"b0": self._board_pockets(0), "b1": self._board_pockets(1)}
+        return {"b0": self.board_pockets(0), "b1": self.board_pockets(1)}
 
     def to_snapshot(self, pov_board_idx: int) -> dict[str, Any]:
         partner_idx = 1 - pov_board_idx

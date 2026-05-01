@@ -17,6 +17,7 @@ from shared.infrastructure import (
 from shared.protobuf import core_pb2_grpc
 
 from .game.manager import GameManager
+from .invites import InviteManager
 from .lobby.manager import LobbyManager
 from .main import CoreServiceServicer
 from .notifier import Notifier
@@ -52,12 +53,20 @@ async def main() -> None:
         ranking=env_config.ranking,
     )
     sessions = UserSessionIndex(lobby_mgr, game_mgr)
+    invite_mgr = InviteManager(
+        lobbies=lobby_mgr,
+        games=game_mgr,
+        notifier=notifier,
+        redis=redis,
+    )
 
     queue_mgr.start_loop()
 
     server = aio.server()
     core_pb2_grpc.add_CoreServiceServicer_to_server(
-        CoreServiceServicer(lobby_mgr, queue_mgr, game_mgr, notifier, sessions),
+        CoreServiceServicer(
+            lobby_mgr, queue_mgr, game_mgr, invite_mgr, notifier, sessions,
+        ),
         server,
     )
     bind = f"0.0.0.0:{env_config.core.port}"

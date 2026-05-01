@@ -1,176 +1,265 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Iterable
 from uuid import UUID
 
 from redis.asyncio import Redis
 
 from shared.events import (
-    GameEnd,
-    GameMoveEvent,
-    GameStart,
-    LobbyDeleted,
-    LobbyStateEvent,
-    QueueCancelled,
-    QueueMatchFound,
-    QueueStarted,
-    ServerEvent,
-)
-from shared.events.common import (
-    BoardPocketsPayload,
-    ClocksPayload,
-    EndReasonStr,
-    GameResultStr,
-    LobbyConfigPayload,
-    PocketsPayload,
-    SeatPayload,
+    BughouseData,
+    CamelModel,
+    ClocksData,
+    ErrorData,
+    ErrorMsg,
+    GameEndData,
+    GameEndMsg,
+    GameJoinMsg,
+    GameMoveReceiveMsg,
+    GameMoveServerData,
+    GameStatus,
+    InviteData,
+    InviteReceiveMsg,
+    InviteRejectedData,
+    LobbyCancelMMMsg,
+    LobbyConfigUpdateMsg,
+    LobbyData,
+    LobbyInviteRejectedMsg,
+    LobbyJoinMsg,
+    LobbyKickedMsg,
+    LobbyPlayerJoinMsg,
+    LobbyPlayerLeaveData,
+    LobbyPlayerLeaveMsg,
+    LobbyPlayerSlot,
+    LobbyStartMMMsg,
+    LobbyTimeRatingData,
+    LobbyUpdateSlot,
+    SyncData,
+    SyncMsg,
+    dump,
 )
 from shared.infrastructure import setup_logger
 
-from .game.models import EndReason, GameObj, GameResult, MoveRecord
-from .lobby.models import Lobby, LobbyState
+from .game.models import EndReason, GameObj, GameResult
+from .lobby.models import Lobby, LobbyState, Seat
 
 logger = setup_logger(__name__)
 
 
-def _seats_payload(lobby: Lobby) -> list[SeatPayload | None]:
-    out: list[SeatPayload | None] = []
-    for seat in lobby.seats:
-        if seat is None:
-            out.append(None)
-        else:
-            out.append(SeatPayload(
-                user_id=str(seat.user_id),
-                username=seat.username,
-                rating=seat.rating,
-            ))
-    return out
+def _slot_payload(seat: Seat | None) -> LobbyPlayerSlot | None:
+    if seat is None:
+        return None
+    return LobbyPlayerSlot(username=seat.username, rating=seat.rating)
 
 
-def _lobby_state_str(lobby: Lobby) -> str:
-    return "in_queue" if lobby.state == LobbyState.IN_QUEUE else "idle"
+def lobby_data(lobby: Lobby) -> LobbyData:
+    return LobbyData(
+        init_sec=lobby.config.initial_ms // 1000,
+        incr_sec=lobby.config.increment_ms // 1000,
+        rated=lobby.config.rated,
+        in_queue=lobby.state == LobbyState.IN_QUEUE,
+        slots=[_slot_payload(s) for s in lobby.seats],
+        leader=lobby.leader,
+    )
 
 
-def _lobby_config_payload(lobby: Lobby) -> LobbyConfigPayload:
-    return LobbyConfigPayload(
-        initial_ms=lobby.config.initial_ms,
-        increment_ms=lobby.config.increment_ms,
+def lobby_config_payload(lobby: Lobby) -> LobbyTimeRatingData:
+    return LobbyTimeRatingData(
+        init_sec=lobby.config.initial_ms // 1000,
+        incr_sec=lobby.config.increment_ms // 1000,
         rated=lobby.config.rated,
     )
 
 
-def _build_lobby_state_event(lobby: Lobby, your_pos: int) -> LobbyStateEvent:
-    return LobbyStateEvent(
-        id=str(lobby.id),
-        leader_id=str(lobby.leader_id),
-        seats=_seats_payload(lobby),
-        config=_lobby_config_payload(lobby),
-        state=_lobby_state_str(lobby),  # type: ignore[arg-type]
-        your_pos=your_pos,
+def clocks_payload(snap: dict[str, int]) -> ClocksData:
+    return ClocksData(
+        b0w=snap["b0w"], b0b=snap["b0b"], b1w=snap["b1w"], b1b=snap["b1b"]
     )
 
 
-def _board_pockets(raw: dict[str, dict[str, int]]) -> BoardPocketsPayload:
-    return BoardPocketsPayload.model_validate(raw)
+_RESULT_TO_STATUS: dict[GameResult, GameStatus] = {
+    GameResult.TEAM_A: "WinA",
+    GameResult.TEAM_B: "WinB",
+    GameResult.DRAW: "Draw",
+    GameResult.ABORT: "Abort",
+}
 
 
-def pockets_from_raw(raw: dict[str, dict[str, dict[str, int]]]) -> PocketsPayload:
-    return PocketsPayload(
-        b0=_board_pockets(raw.get("b0", {"w": {}, "b": {}})),
-        b1=_board_pockets(raw.get("b1", {"w": {}, "b": {}})),
-    )
+def result_status(result: GameResult) -> GameStatus:
+    return _RESULT_TO_STATUS[result]
 
 
-def clocks_from_raw(raw: dict[str, int]) -> ClocksPayload:
-    return ClocksPayload(
-        b0w=raw["b0w"], b0b=raw["b0b"], b1w=raw["b1w"], b1b=raw["b1b"]
-    )
+def reason_str(reason: EndReason) -> str:
+    return reason.value
 
 
-def result_str(result: GameResult) -> GameResultStr:
-    mapping: dict[GameResult, GameResultStr] = {
-        GameResult.TEAM_A: "team_a",
-        GameResult.TEAM_B: "team_b",
-        GameResult.DRAW: "draw",
-        GameResult.ABORT: "abort",
-    }
-    return mapping[result]
-
-
-def reason_str(reason: EndReason) -> EndReasonStr:
-    return reason.value  # type: ignore[return-value]
+ACTIVE_SET_KEY = "active_player"
+ONLINE_KEY_PREFIX = "ws:online:"
 
 
 class Notifier:
     def __init__(self, redis: Redis) -> None:
         self._redis = redis
 
-    async def publish(self, user_id: str | UUID, event: ServerEvent) -> None:
-        channel = f"ws:user:{user_id}"
-        message = event.model_dump_json()
-        logger.debug("redis publish -> channel=%s event=%s", channel, event.type)
+    async def _send(self, username: str, msg: CamelModel) -> None:
+        channel = f"ws:user:{username}"
+        payload = dump(msg)
         try:
-            await self._redis.publish(channel, message)
+            await self._redis.publish(channel, payload)
         except Exception:
-            logger.exception("Failed to publish %s to %s", event.type, channel)
+            logger.exception("Failed to publish to %s", channel)
+
+    # ------------- Active-set bookkeeping -------------
+
+    async def _is_online(self, username: str) -> bool:
+        try:
+            return bool(await self._redis.exists(f"{ONLINE_KEY_PREFIX}{username}"))
+        except Exception:
+            logger.exception("ws:online check failed for %s", username)
+            return False
+
+    async def mark_busy(self, username: str) -> None:
+        try:
+            await self._redis.srem(ACTIVE_SET_KEY, username)  # type: ignore[misc]
+        except Exception:
+            logger.exception("active_player SREM failed for %s", username)
+
+    async def mark_idle_if_online(self, username: str) -> None:
+        if not await self._is_online(username):
+            return
+        try:
+            await self._redis.sadd(ACTIVE_SET_KEY, username)  # type: ignore[misc]
+        except Exception:
+            logger.exception("active_player SADD failed for %s", username)
 
     async def _fanout(
         self,
-        user_ids: Iterable[str | UUID],
-        event: ServerEvent,
+        usernames: Iterable[str],
+        msg: CamelModel,
     ) -> None:
-        for uid in user_ids:
-            await self.publish(uid, event)
+        for u in usernames:
+            await self._send(u, msg)
 
-    async def publish_lobby_state(self, lobby: Lobby) -> None:
-        seated = [s.user_id for s in lobby.seats if s is not None]
-        logger.debug("publish_lobby_state: lobby_id=%s state=%s recipients=%s", lobby.id, lobby.state, seated)
-        for pos, seat in enumerate(lobby.seats):
-            if seat is None:
-                continue
-            await self.publish(seat.user_id, _build_lobby_state_event(lobby, pos))
+    # ------------- Lobby -------------
 
-    async def publish_lobby_deleted(
+    async def publish_lobby_join(self, lobby: Lobby, username: str) -> None:
+        await self._send(username, LobbyJoinMsg(data=lobby_data(lobby)))
+
+    async def publish_lobby_full_state(self, lobby: Lobby) -> None:
+        msg = LobbyJoinMsg(data=lobby_data(lobby))
+        await self._fanout(lobby.usernames, msg)
+
+    async def publish_player_slot_update(
         self,
-        user_ids: Iterable[str | UUID],
+        lobby: Lobby,
+        idx: int,
+        seat: Seat | None,
+        *,
+        exclude: str | None = None,
+    ) -> None:
+        msg = LobbyPlayerJoinMsg(
+            data=LobbyUpdateSlot(idx=idx, slot=_slot_payload(seat))  # type: ignore[arg-type]
+        )
+        for u in lobby.usernames:
+            if u == exclude:
+                continue
+            await self._send(u, msg)
+
+    async def publish_player_leave(
+        self,
+        lobby: Lobby,
+        idx: int,
         reason: str,
     ) -> None:
-        ids = list(user_ids)
-        logger.debug("publish_lobby_deleted: reason=%s recipients=%s", reason, ids)
-        await self._fanout(ids, LobbyDeleted(reason=reason))
+        msg = LobbyPlayerLeaveMsg(
+            data=LobbyPlayerLeaveData(idx=idx, reason=reason)  # type: ignore[arg-type]
+        )
+        await self._fanout(lobby.usernames, msg)
 
-    async def publish_queue_started(self, user_ids: Iterable[str | UUID]) -> None:
-        ids = list(user_ids)
-        logger.debug("publish_queue_started: recipients=%s", ids)
-        await self._fanout(ids, QueueStarted())
+    async def publish_lobby_kicked(self, username: str) -> None:
+        await self._send(username, LobbyKickedMsg())
 
-    async def publish_queue_cancelled(self, user_ids: Iterable[str | UUID]) -> None:
-        ids = list(user_ids)
-        logger.debug("publish_queue_cancelled: recipients=%s", ids)
-        await self._fanout(ids, QueueCancelled())
+    async def publish_lobby_config(self, lobby: Lobby) -> None:
+        msg = LobbyConfigUpdateMsg(data=lobby_config_payload(lobby))
+        await self._fanout(lobby.usernames, msg)
 
-    async def publish_match_found(
+    # ------------- Invites -------------
+
+    async def publish_invite_receive(
         self,
-        user_ids: Iterable[str | UUID],
-        game_id: str,
+        receiver: str,
+        sender: str,
+        idx: int,
     ) -> None:
-        ids = list(user_ids)
-        logger.debug("publish_match_found: game_id=%s recipients=%s", game_id, ids)
-        await self._fanout(ids, QueueMatchFound(game_id=game_id))
+        msg = InviteReceiveMsg(
+            data=InviteData(idx=idx, username=sender)  # type: ignore[arg-type]
+        )
+        await self._send(receiver, msg)
+
+    async def publish_invite_rejected(
+        self,
+        lobby: Lobby,
+        idx: int,
+        rejecter: str,
+    ) -> None:
+        msg = LobbyInviteRejectedMsg(
+            data=InviteRejectedData(idx=idx, username=rejecter)  # type: ignore[arg-type]
+        )
+        await self._fanout(lobby.usernames, msg)
+
+    # ------------- Queue -------------
+
+    async def publish_queue_started(self, lobby: Lobby) -> None:
+        await self._fanout(lobby.usernames, LobbyStartMMMsg())
+
+    async def publish_queue_cancelled(self, lobby: Lobby) -> None:
+        await self._fanout(lobby.usernames, LobbyCancelMMMsg())
+
+    # ------------- Game -------------
 
     async def publish_game_start(
         self,
-        game: GameObj,
-        per_user_events: dict[str, GameStart],
+        usernames: Iterable[str],
+        bughouse: BughouseData,
     ) -> None:
-        logger.debug("publish_game_start: game_id=%s recipients=%s", game.id, game.user_ids)
-        for uid in game.user_ids:
-            await self.publish(uid, per_user_events[uid])
+        msg = GameJoinMsg(data=bughouse)
+        await self._fanout(usernames, msg)
 
-    async def publish_move(self, game: GameObj, event: GameMoveEvent) -> None:
-        logger.debug("publish_move: game_id=%s uci=%s recipients=%s", game.id, event.uci, game.user_ids)
-        await self._fanout(game.user_ids, event)
+    async def publish_move(
+        self,
+        usernames: Iterable[str],
+        idx: int,
+        uci: str,
+        white_ms: int,
+        black_ms: int,
+    ) -> None:
+        msg = GameMoveReceiveMsg(
+            data=GameMoveServerData(idx=idx, move=uci, white=white_ms, black=black_ms)  # type: ignore[arg-type]
+        )
+        await self._fanout(usernames, msg)
 
-    async def publish_game_end(self, game: GameObj, event: GameEnd) -> None:
-        logger.debug("publish_game_end: game_id=%s result=%s reason=%s recipients=%s", game.id, event.result, event.reason, game.user_ids)
-        await self._fanout(game.user_ids, event)
+    async def publish_game_end(
+        self,
+        usernames: Iterable[str],
+        status: GameStatus,
+        rating_changes: dict[str, float],
+    ) -> None:
+        msg = GameEndMsg(
+            data=GameEndData(status=status, rating_changes=rating_changes)
+        )
+        await self._fanout(usernames, msg)
+
+    # ------------- Direct -------------
+
+    async def send_error(self, username: str, code: str, message: str = "") -> None:
+        await self._send(
+            username,
+            ErrorMsg(data=ErrorData(code=code, message=message or None)),
+        )
+
+    async def send_sync(self, username: str, sync: SyncData) -> None:
+        await self._send(username, SyncMsg(data=sync))
+
+
+def now_ms() -> int:
+    return int(time.time() * 1000)

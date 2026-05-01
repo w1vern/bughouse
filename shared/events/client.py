@@ -4,98 +4,138 @@ from typing import Annotated, Literal
 
 from pydantic import Field, TypeAdapter
 
-from .common import EventModel
+from .common import (
+    CamelModel,
+    GameMoveData,
+    InviteData,
+    LobbyTimeData,
+    LobbyTimeRatingData,
+    NoData,
+    WsMsgType,
+)
+
+_PING = WsMsgType.PING.value
+_REQ_SYNC = WsMsgType.REQ_SYNC.value
+_LOBBY_CREATE = WsMsgType.LOBBY_CREATE.value
+_LOBBY_LEAVE = WsMsgType.LOBBY_LEAVE.value
+_LOBBY_KICK = WsMsgType.LOBBY_KICK.value
+_INVITE_SEND = WsMsgType.INVITE_SEND.value
+_INVITE_ACCEPT = WsMsgType.INVITE_ACCEPT.value
+_INVITE_REJECT = WsMsgType.INVITE_REJECT.value
+_LOBBY_CONFIG = WsMsgType.LOBBY_CONFIG.value
+_START_MM = WsMsgType.START_MM.value
+_CANCEL_MM = WsMsgType.CANCEL_MM.value
+_GAME_MOVE = WsMsgType.GAME_MOVE.value
+_GAME_CHAT_SEND = WsMsgType.GAME_CHAT_MSG_SEND.value
+_GAME_RESIGN = WsMsgType.GAME_RESIGN.value
 
 
-class Ping(EventModel):
-    type: Literal["ping"] = "ping"
+class PingMsg(CamelModel):
+    type: Literal[_PING] = _PING  # type: ignore[valid-type]
+    data: NoData = Field(default_factory=NoData)
 
 
-class LobbyCreate(EventModel):
-    type: Literal["lobby.create"] = "lobby.create"
+class ReqSyncMsg(CamelModel):
+    type: Literal[_REQ_SYNC] = _REQ_SYNC  # type: ignore[valid-type]
+    data: NoData = Field(default_factory=NoData)
 
 
-class LobbyJoin(EventModel):
-    type: Literal["lobby.join"] = "lobby.join"
-    lobby_id: str
+class LobbyCreateMsg(CamelModel):
+    type: Literal[_LOBBY_CREATE] = _LOBBY_CREATE  # type: ignore[valid-type]
+    data: LobbyTimeData
 
 
-class LobbyLeave(EventModel):
-    type: Literal["lobby.leave"] = "lobby.leave"
+class LobbyLeaveMsg(CamelModel):
+    type: Literal[_LOBBY_LEAVE] = _LOBBY_LEAVE  # type: ignore[valid-type]
+    data: NoData = Field(default_factory=NoData)
 
 
-class LobbySeat(EventModel):
-    type: Literal["lobby.seat"] = "lobby.seat"
-    user_id: str
-    pos: int = Field(ge=0, le=3)
+class LobbyKickMsg(CamelModel):
+    type: Literal[_LOBBY_KICK] = _LOBBY_KICK  # type: ignore[valid-type]
+    data: str
 
 
-class LobbyUnseat(EventModel):
-    type: Literal["lobby.unseat"] = "lobby.unseat"
-    pos: int = Field(ge=0, le=3)
+class InviteSendMsg(CamelModel):
+    type: Literal[_INVITE_SEND] = _INVITE_SEND  # type: ignore[valid-type]
+    data: InviteData
 
 
-class LobbyKick(EventModel):
-    type: Literal["lobby.kick"] = "lobby.kick"
-    user_id: str
+class InviteAcceptMsg(CamelModel):
+    type: Literal[_INVITE_ACCEPT] = _INVITE_ACCEPT  # type: ignore[valid-type]
+    data: str
 
 
-class LobbyConfig(EventModel):
-    type: Literal["lobby.config"] = "lobby.config"
-    initial_ms: int = Field(ge=0)
-    increment_ms: int = Field(ge=0)
-    rated: bool
+class InviteRejectMsg(CamelModel):
+    type: Literal[_INVITE_REJECT] = _INVITE_REJECT  # type: ignore[valid-type]
+    data: str
 
 
-class QueueStart(EventModel):
-    type: Literal["queue.start"] = "queue.start"
+class LobbyConfigMsg(CamelModel):
+    type: Literal[_LOBBY_CONFIG] = _LOBBY_CONFIG  # type: ignore[valid-type]
+    data: LobbyTimeRatingData
 
 
-class QueueCancel(EventModel):
-    type: Literal["queue.cancel"] = "queue.cancel"
+class StartMMMsg(CamelModel):
+    type: Literal[_START_MM] = _START_MM  # type: ignore[valid-type]
+    data: NoData = Field(default_factory=NoData)
 
 
-class GameMove(EventModel):
-    type: Literal["game.move"] = "game.move"
-    uci: str
+class CancelMMMsg(CamelModel):
+    type: Literal[_CANCEL_MM] = _CANCEL_MM  # type: ignore[valid-type]
+    data: NoData = Field(default_factory=NoData)
 
 
-class GameResign(EventModel):
-    type: Literal["game.resign"] = "game.resign"
+class GameMoveMsg(CamelModel):
+    type: Literal[_GAME_MOVE] = _GAME_MOVE  # type: ignore[valid-type]
+    data: GameMoveData
 
 
-ClientEvent = Annotated[
-    Ping
-    | LobbyCreate
-    | LobbyJoin
-    | LobbyLeave
-    | LobbySeat
-    | LobbyUnseat
-    | LobbyKick
-    | LobbyConfig
-    | QueueStart
-    | QueueCancel
-    | GameMove
-    | GameResign,
+class GameChatSendMsg(CamelModel):
+    type: Literal[_GAME_CHAT_SEND] = _GAME_CHAT_SEND  # type: ignore[valid-type]
+    data: str
+
+
+class GameResignMsg(CamelModel):
+    type: Literal[_GAME_RESIGN] = _GAME_RESIGN  # type: ignore[valid-type]
+    data: NoData = Field(default_factory=NoData)
+
+
+ClientMsg = Annotated[
+    PingMsg
+    | ReqSyncMsg
+    | LobbyCreateMsg
+    | LobbyLeaveMsg
+    | LobbyKickMsg
+    | InviteSendMsg
+    | InviteAcceptMsg
+    | InviteRejectMsg
+    | LobbyConfigMsg
+    | StartMMMsg
+    | CancelMMMsg
+    | GameMoveMsg
+    | GameChatSendMsg
+    | GameResignMsg,
     Field(discriminator="type"),
 ]
 
-ClientEventAdapter: TypeAdapter[ClientEvent] = TypeAdapter(ClientEvent)
+ClientMsgAdapter: TypeAdapter[ClientMsg] = TypeAdapter(ClientMsg)
 
-CLIENT_EVENTS: dict[str, type[EventModel]] = {
+CLIENT_EVENTS: dict[int, type[CamelModel]] = {
     cls.model_fields["type"].default: cls
     for cls in (
-        Ping,
-        LobbyCreate,
-        LobbyJoin,
-        LobbyLeave,
-        LobbySeat,
-        LobbyUnseat,
-        LobbyKick,
-        LobbyConfig,
-        QueueStart,
-        QueueCancel,
-        GameMove,
-        GameResign,
+        PingMsg,
+        ReqSyncMsg,
+        LobbyCreateMsg,
+        LobbyLeaveMsg,
+        LobbyKickMsg,
+        InviteSendMsg,
+        InviteAcceptMsg,
+        InviteRejectMsg,
+        LobbyConfigMsg,
+        StartMMMsg,
+        CancelMMMsg,
+        GameMoveMsg,
+        GameChatSendMsg,
+        GameResignMsg,
     )
 }

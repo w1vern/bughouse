@@ -31,7 +31,6 @@ _PARTNER_POS = {0: 3, 3: 0, 1: 2, 2: 1}
 
 @dataclass(slots=True)
 class PlayerRef:
-    user_id: UUID
     username: str
     rating_before: float
     sigma_before: float
@@ -40,7 +39,7 @@ class PlayerRef:
 @dataclass(slots=True)
 class MoveRecord:
     board: int
-    user_id: UUID
+    username: str
     uci: str
     ms_spent: int
     index: int
@@ -61,40 +60,26 @@ class GameObj:
     finished: bool = False
 
     @property
-    def user_ids(self) -> list[str]:
-        return [str(p.user_id) for p in self.players]
+    def usernames(self) -> list[str]:
+        return [p.username for p in self.players]
 
-    @property
-    def game_id(self) -> str:
-        return str(self.id)
-
-    def pos_of(self, user_id: UUID) -> int:
+    def pos_of(self, username: str) -> int:
         for i, p in enumerate(self.players):
-            if p.user_id == user_id:
+            if p.username == username:
                 return i
-        raise KeyError(user_id)
+        raise KeyError(username)
 
-    def board_of(self, user_id: UUID) -> int:
-        return self.pos_of(user_id) // 2
+    def board_of(self, username: str) -> int:
+        return self.pos_of(username) // 2
 
-    def color_of(self, user_id: UUID) -> chess.Color:
-        return chess.WHITE if self.pos_of(user_id) % 2 == 0 else chess.BLACK
+    def color_of(self, username: str) -> chess.Color:
+        return chess.WHITE if self.pos_of(username) % 2 == 0 else chess.BLACK
 
-    def partner_of(self, user_id: UUID) -> UUID:
-        return self.players[_PARTNER_POS[self.pos_of(user_id)]].user_id
+    def partner_of(self, username: str) -> str:
+        return self.players[_PARTNER_POS[self.pos_of(username)]].username
 
-    def opponents_of(self, user_id: UUID) -> list[UUID]:
-        pos = self.pos_of(user_id)
-        partner = _PARTNER_POS[pos]
-        return [self.players[i].user_id for i in range(4) if i != pos and i != partner]
-
-    def is_turn_of(self, user_id: UUID) -> bool:
-        pos = self.pos_of(user_id)
+    def is_turn_of(self, username: str) -> bool:
+        pos = self.pos_of(username)
         board_idx = pos // 2
         expected = chess.WHITE if pos % 2 == 0 else chess.BLACK
         return self.boards.turn(board_idx) == expected
-
-    def winner_str(self) -> str:
-        if self.result is None:
-            return ""
-        return self.result.name.lower()

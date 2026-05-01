@@ -11,22 +11,25 @@ from . import CLIENT_EVENTS, SERVER_EVENTS
 
 
 def _schemas_for(
-    events: dict[str, Any],
+    events: dict[int, Any],
     ref_prefix: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     _, top = models_json_schema(
         [(cls, "validation") for cls in events.values()],
         ref_template=f"#/$defs/{ref_prefix}/{{model}}",
+        by_alias=True,
     )
     defs = top.get("$defs", {})
 
     out: dict[str, Any] = {}
-    for name, cls in events.items():
+    for code, cls in events.items():
         model_name = cls.__name__
         schema = defs.pop(model_name, None)
         if schema is None:
-            schema = cls.model_json_schema(schema_generator=GenerateJsonSchema)
-        out[name] = schema
+            schema = cls.model_json_schema(
+                schema_generator=GenerateJsonSchema, by_alias=True
+            )
+        out[str(code)] = schema
     return out, defs
 
 

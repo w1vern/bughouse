@@ -5,123 +5,164 @@ from typing import Annotated, Literal
 from pydantic import Field, TypeAdapter
 
 from .common import (
-    ClocksPayload,
-    EndReasonStr,
-    EventModel,
-    GameResultStr,
-    GameStatePayload,
-    LobbyConfigPayload,
-    LobbyPayload,
-    LobbyStateStr,
-    PocketsPayload,
-    SeatPayload,
-    SnapshotStateStr,
+    BughouseData,
+    CamelModel,
+    ErrorData,
+    GameEndData,
+    GameMoveServerData,
+    InviteData,
+    InviteRejectedData,
+    LobbyData,
+    LobbyPlayerLeaveData,
+    LobbyTimeRatingData,
+    LobbyUpdateSlot,
+    NoData,
+    SyncData,
+    WsMsgType,
 )
 
-
-class Pong(EventModel):
-    type: Literal["pong"] = "pong"
-
-
-class ErrorEvent(EventModel):
-    type: Literal["error"] = "error"
-    code: str
-    message: str = ""
-
-
-class SnapshotEvent(EventModel):
-    type: Literal["snapshot"] = "snapshot"
-    state: SnapshotStateStr
-    lobby: LobbyPayload | None = None
-    game: GameStatePayload | None = None
-
-
-class LobbyStateEvent(EventModel):
-    type: Literal["lobby.state"] = "lobby.state"
-    id: str
-    leader_id: str
-    seats: list[SeatPayload | None]
-    config: LobbyConfigPayload
-    state: LobbyStateStr
-    your_pos: int | None = None
+_PONG = WsMsgType.PONG.value
+_SYNC = WsMsgType.SYNC.value
+_LOBBY_JOIN = WsMsgType.LOBBY_JOIN.value
+_LOBBY_KICKED = WsMsgType.LOBBY_KICKED.value
+_INVITE_RECEIVE = WsMsgType.INVITE_RECEIVE.value
+_LOBBY_CONFIG_UPDATE = WsMsgType.LOBBY_CONFIG_UPDATE.value
+_LOBBY_INVITE_REJECTED = WsMsgType.LOBBY_INVITE_REJECTED.value
+_LOBBY_START_MM = WsMsgType.LOBBY_START_MM.value
+_LOBBY_CANCEL_MM = WsMsgType.LOBBY_CANCEL_MM.value
+_LOBBY_PLAYER_JOIN = WsMsgType.LOBBY_PLAYER_JOIN.value
+_LOBBY_PLAYER_LEAVE = WsMsgType.LOBBY_PLAYER_LEAVE.value
+_GAME_JOIN = WsMsgType.GAME_JOIN.value
+_GAME_MOVE_RECEIVE = WsMsgType.GAME_MOVE_RECEIVE.value
+_GAME_CHAT_RECEIVE = WsMsgType.GAME_CHAT_MSG_RECEIVE.value
+_GAME_END = WsMsgType.GAME_END.value
+_ERROR = WsMsgType.ERROR.value
 
 
-class LobbyDeleted(EventModel):
-    type: Literal["lobby.deleted"] = "lobby.deleted"
-    reason: str
+class PongMsg(CamelModel):
+    type: Literal[_PONG] = _PONG  # type: ignore[valid-type]
+    data: NoData = Field(default_factory=NoData)
 
 
-class QueueStarted(EventModel):
-    type: Literal["queue.started"] = "queue.started"
+class SyncMsg(CamelModel):
+    type: Literal[_SYNC] = _SYNC  # type: ignore[valid-type]
+    data: SyncData
 
 
-class QueueCancelled(EventModel):
-    type: Literal["queue.cancelled"] = "queue.cancelled"
+class LobbyJoinMsg(CamelModel):
+    type: Literal[_LOBBY_JOIN] = _LOBBY_JOIN  # type: ignore[valid-type]
+    data: LobbyData
 
 
-class QueueMatchFound(EventModel):
-    type: Literal["queue.match_found"] = "queue.match_found"
-    game_id: str
+class LobbyKickedMsg(CamelModel):
+    type: Literal[_LOBBY_KICKED] = _LOBBY_KICKED  # type: ignore[valid-type]
+    data: NoData = Field(default_factory=NoData)
 
 
-class GameStart(EventModel):
-    type: Literal["game.start"] = "game.start"
-    game_id: str
-    board: int = Field(ge=0, le=1)
-    color: int = Field(ge=0, le=1)
-    partner_id: str
-    opponents: list[str]
-    initial_ms: int = Field(ge=0)
-    increment_ms: int = Field(ge=0)
+class InviteReceiveMsg(CamelModel):
+    type: Literal[_INVITE_RECEIVE] = _INVITE_RECEIVE  # type: ignore[valid-type]
+    data: InviteData
 
 
-class GameMoveEvent(EventModel):
-    type: Literal["game.move"] = "game.move"
-    board: int = Field(ge=0, le=1)
-    uci: str
-    fen_after: str
-    pockets_after: PocketsPayload
-    clocks: ClocksPayload
-    next_mover_id: str
+class LobbyConfigUpdateMsg(CamelModel):
+    type: Literal[_LOBBY_CONFIG_UPDATE] = _LOBBY_CONFIG_UPDATE  # type: ignore[valid-type]
+    data: LobbyTimeRatingData
 
 
-class GameEnd(EventModel):
-    type: Literal["game.end"] = "game.end"
-    result: GameResultStr
-    reason: EndReasonStr
-    rating_deltas: dict[str, float]
+class LobbyInviteRejectedMsg(CamelModel):
+    type: Literal[_LOBBY_INVITE_REJECTED] = _LOBBY_INVITE_REJECTED  # type: ignore[valid-type]
+    data: InviteRejectedData
 
 
-ServerEvent = Annotated[
-    Pong
-    | ErrorEvent
-    | SnapshotEvent
-    | LobbyStateEvent
-    | LobbyDeleted
-    | QueueStarted
-    | QueueCancelled
-    | QueueMatchFound
-    | GameStart
-    | GameMoveEvent
-    | GameEnd,
+class LobbyStartMMMsg(CamelModel):
+    type: Literal[_LOBBY_START_MM] = _LOBBY_START_MM  # type: ignore[valid-type]
+    data: NoData = Field(default_factory=NoData)
+
+
+class LobbyCancelMMMsg(CamelModel):
+    type: Literal[_LOBBY_CANCEL_MM] = _LOBBY_CANCEL_MM  # type: ignore[valid-type]
+    data: NoData = Field(default_factory=NoData)
+
+
+class LobbyPlayerJoinMsg(CamelModel):
+    type: Literal[_LOBBY_PLAYER_JOIN] = _LOBBY_PLAYER_JOIN  # type: ignore[valid-type]
+    data: LobbyUpdateSlot
+
+
+class LobbyPlayerLeaveMsg(CamelModel):
+    type: Literal[_LOBBY_PLAYER_LEAVE] = _LOBBY_PLAYER_LEAVE  # type: ignore[valid-type]
+    data: LobbyPlayerLeaveData
+
+
+class GameJoinMsg(CamelModel):
+    type: Literal[_GAME_JOIN] = _GAME_JOIN  # type: ignore[valid-type]
+    data: BughouseData
+
+
+class GameMoveReceiveMsg(CamelModel):
+    type: Literal[_GAME_MOVE_RECEIVE] = _GAME_MOVE_RECEIVE  # type: ignore[valid-type]
+    data: GameMoveServerData
+
+
+class GameChatReceiveMsg(CamelModel):
+    type: Literal[_GAME_CHAT_RECEIVE] = _GAME_CHAT_RECEIVE  # type: ignore[valid-type]
+    data: str
+
+
+class GameEndMsg(CamelModel):
+    type: Literal[_GAME_END] = _GAME_END  # type: ignore[valid-type]
+    data: GameEndData
+
+
+class ErrorMsg(CamelModel):
+    type: Literal[_ERROR] = _ERROR  # type: ignore[valid-type]
+    data: ErrorData
+
+
+ServerMsg = Annotated[
+    PongMsg
+    | SyncMsg
+    | LobbyJoinMsg
+    | LobbyKickedMsg
+    | InviteReceiveMsg
+    | LobbyConfigUpdateMsg
+    | LobbyInviteRejectedMsg
+    | LobbyStartMMMsg
+    | LobbyCancelMMMsg
+    | LobbyPlayerJoinMsg
+    | LobbyPlayerLeaveMsg
+    | GameJoinMsg
+    | GameMoveReceiveMsg
+    | GameChatReceiveMsg
+    | GameEndMsg
+    | ErrorMsg,
     Field(discriminator="type"),
 ]
 
-ServerEventAdapter: TypeAdapter[ServerEvent] = TypeAdapter(ServerEvent)
+ServerMsgAdapter: TypeAdapter[ServerMsg] = TypeAdapter(ServerMsg)
 
-SERVER_EVENTS: dict[str, type[EventModel]] = {
+SERVER_EVENTS: dict[int, type[CamelModel]] = {
     cls.model_fields["type"].default: cls
     for cls in (
-        Pong,
-        ErrorEvent,
-        SnapshotEvent,
-        LobbyStateEvent,
-        LobbyDeleted,
-        QueueStarted,
-        QueueCancelled,
-        QueueMatchFound,
-        GameStart,
-        GameMoveEvent,
-        GameEnd,
+        PongMsg,
+        SyncMsg,
+        LobbyJoinMsg,
+        LobbyKickedMsg,
+        InviteReceiveMsg,
+        LobbyConfigUpdateMsg,
+        LobbyInviteRejectedMsg,
+        LobbyStartMMMsg,
+        LobbyCancelMMMsg,
+        LobbyPlayerJoinMsg,
+        LobbyPlayerLeaveMsg,
+        GameJoinMsg,
+        GameMoveReceiveMsg,
+        GameChatReceiveMsg,
+        GameEndMsg,
+        ErrorMsg,
     )
 }
+
+
+def dump(msg: CamelModel) -> str:
+    return msg.model_dump_json(by_alias=True)

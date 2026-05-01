@@ -15,5 +15,6 @@ result.tree
 
 openapi.json
 ws-docs.json
+*.ts
 
 test.py

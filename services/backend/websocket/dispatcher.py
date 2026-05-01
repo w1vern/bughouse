@@ -1,255 +1,209 @@
-
 from __future__ import annotations
 
 import json
 from collections.abc import Awaitable, Callable
 from typing import Any
-from uuid import UUID
 
 import grpc
 from pydantic import ValidationError
 
 from shared.database import User
 from shared.events import (
-    ClientEvent,
-    ClientEventAdapter,
-    ErrorEvent,
-    GameMove,
-    GameStatePayload,
-    LobbyConfig,
-    LobbyJoin,
-    LobbyKick,
-    LobbyPayload,
-    LobbySeat,
-    LobbyUnseat,
-    PocketsPayload,
-    ServerEvent,
-    SnapshotEvent,
+    CamelModel,
+    CancelMMMsg,
+    ClientMsg,
+    ClientMsgAdapter,
+    ErrorData,
+    ErrorMsg,
+    GameChatSendMsg,
+    GameMoveMsg,
+    GameResignMsg,
+    InviteAcceptMsg,
+    InviteRejectMsg,
+    InviteSendMsg,
+    LobbyConfigMsg,
+    LobbyCreateMsg,
+    LobbyKickMsg,
+    LobbyLeaveMsg,
+    PingMsg,
+    PongMsg,
+    ReqSyncMsg,
+    StartMMMsg,
+    SyncData,
+    SyncMsg,
+    WsMsgType,
 )
-from shared.events.common import SnapshotStateStr
 from shared.infrastructure import setup_logger
-from shared.protobuf import core_pb2, core_pb2_grpc
+from shared.protobuf import core_pb2 as pb
+from shared.protobuf import core_pb2_grpc
 
 logger = setup_logger(__name__)
 
-
-Handler = Callable[
-    [core_pb2_grpc.CoreServiceStub, User, Any],
-    Awaitable[ServerEvent | None],
-]
+Stub = core_pb2_grpc.CoreServiceStub
+Handler = Callable[[Stub, User, Any], Awaitable[CamelModel | None]]
 
 
-def _status_error(
-    resp: core_pb2.StatusResp | core_pb2.LobbyResp,
-) -> ServerEvent | None:
+def _err_from_status(resp: pb.StatusResp) -> CamelModel | None:
     if resp.ok:
         return None
-    return ErrorEvent(code=resp.error_code or "unknown", message=resp.message or "")
+    return ErrorMsg(
+        data=ErrorData(code=resp.error_code or "unknown", message=resp.message or "")
+    )
 
 
-def _grpc_error(exc: grpc.aio.AioRpcError) -> ErrorEvent:
+def _err_from_grpc(exc: grpc.aio.AioRpcError) -> ErrorMsg:
     code = exc.code().name if exc.code() is not None else "grpc_error"
-    return ErrorEvent(code=code, message=exc.details() or "")
+    return ErrorMsg(data=ErrorData(code=code, message=exc.details() or ""))
 
 
-async def _h_ping(stub: Any, user: User, _: Any) -> ServerEvent:
-    from shared.events import Pong
-    return Pong()
+# ---------------- Handlers ----------------
+
+async def _h_ping(stub: Stub, user: User, _: PingMsg) -> CamelModel:
+    return PongMsg()
 
 
-async def _h_lobby_create(stub: Any, user: User, _: Any) -> ServerEvent | None:
-    resp = await stub.CreateLobby(core_pb2.UserRef(user_id=str(user.id)))
-    return _status_error(resp)
-
-
-async def _h_lobby_join(stub: Any, user: User, cmd: LobbyJoin) -> ServerEvent | None:
-    resp = await stub.JoinLobby(
-        core_pb2.JoinReq(user_id=str(user.id), lobby_id=cmd.lobby_id)
+async def _h_req_sync(stub: Stub, user: User, _: ReqSyncMsg) -> CamelModel:
+    resp: pb.SnapshotResp = await stub.GetUserSnapshot(
+        pb.UserRef(username=user.username)
     )
-    return _status_error(resp)
+    if not resp.ok:
+        return ErrorMsg(
+            data=ErrorData(
+                code=resp.error_code or "snapshot_failed",
+                message=resp.message or "",
+            )
+        )
+    sync = SyncData.model_validate_json(resp.sync_json)
+    return SyncMsg(data=sync)
 
 
-async def _h_lobby_leave(stub: Any, user: User, _: Any) -> ServerEvent | None:
-    resp = await stub.LeaveLobby(core_pb2.UserRef(user_id=str(user.id)))
-    return _status_error(resp)
-
-
-async def _h_lobby_seat(stub: Any, user: User, cmd: LobbySeat) -> ServerEvent | None:
-    resp = await stub.SeatPlayer(
-        core_pb2.SeatReq(
-            leader_id=str(user.id),
-            target_user_id=cmd.user_id,
-            pos=cmd.pos,
+async def _h_lobby_create(stub: Stub, user: User, cmd: LobbyCreateMsg) -> CamelModel | None:
+    resp = await stub.CreateLobby(
+        pb.CreateLobbyReq(
+            username=user.username,
+            initial_ms=cmd.data.init_sec * 1000,
+            increment_ms=cmd.data.incr_sec * 1000,
         )
     )
-    return _status_error(resp)
+    return _err_from_status(resp)
 
 
-async def _h_lobby_unseat(stub: Any, user: User, cmd: LobbyUnseat) -> ServerEvent | None:
-    resp = await stub.UnseatPlayer(
-        core_pb2.UnseatReq(leader_id=str(user.id), pos=cmd.pos)
-    )
-    return _status_error(resp)
+async def _h_lobby_leave(stub: Stub, user: User, _: LobbyLeaveMsg) -> CamelModel | None:
+    resp = await stub.LeaveLobby(pb.UserRef(username=user.username))
+    return _err_from_status(resp)
 
 
-async def _h_lobby_kick(stub: Any, user: User, cmd: LobbyKick) -> ServerEvent | None:
+async def _h_lobby_kick(stub: Stub, user: User, cmd: LobbyKickMsg) -> CamelModel | None:
     resp = await stub.KickFromLobby(
-        core_pb2.KickReq(
-            leader_id=str(user.id),
-            target_user_id=cmd.user_id,
+        pb.KickReq(leader=user.username, target=cmd.data)
+    )
+    return _err_from_status(resp)
+
+
+async def _h_invite_send(stub: Stub, user: User, cmd: InviteSendMsg) -> CamelModel | None:
+    resp = await stub.SendInvite(
+        pb.SendInviteReq(
+            sender=user.username,
+            receiver=cmd.data.username,
+            idx=cmd.data.idx,
         )
     )
-    return _status_error(resp)
+    return _err_from_status(resp)
 
 
-async def _h_lobby_config(stub: Any, user: User, cmd: LobbyConfig) -> ServerEvent | None:
+async def _h_invite_accept(stub: Stub, user: User, cmd: InviteAcceptMsg) -> CamelModel | None:
+    resp = await stub.AcceptInvite(
+        pb.AcceptInviteReq(receiver=user.username, sender=cmd.data)
+    )
+    return _err_from_status(resp)
+
+
+async def _h_invite_reject(stub: Stub, user: User, cmd: InviteRejectMsg) -> CamelModel | None:
+    resp = await stub.RejectInvite(
+        pb.RejectInviteReq(receiver=user.username, sender=cmd.data)
+    )
+    return _err_from_status(resp)
+
+
+async def _h_lobby_config(stub: Stub, user: User, cmd: LobbyConfigMsg) -> CamelModel | None:
     resp = await stub.SetLobbyConfig(
-        core_pb2.SetConfigReq(
-            leader_id=str(user.id),
-            initial_ms=cmd.initial_ms,
-            increment_ms=cmd.increment_ms,
-            rated=cmd.rated,
+        pb.SetConfigReq(
+            leader=user.username,
+            initial_ms=cmd.data.init_sec * 1000,
+            increment_ms=cmd.data.incr_sec * 1000,
+            rated=cmd.data.rated,
         )
     )
-    return _status_error(resp)
+    return _err_from_status(resp)
 
 
-async def _h_queue_start(stub: Any, user: User, _: Any) -> ServerEvent | None:
-    resp = await stub.StartMatchmaking(core_pb2.UserRef(user_id=str(user.id)))
-    return _status_error(resp)
+async def _h_start_mm(stub: Stub, user: User, _: StartMMMsg) -> CamelModel | None:
+    resp = await stub.StartMatchmaking(pb.UserRef(username=user.username))
+    return _err_from_status(resp)
 
 
-async def _h_queue_cancel(stub: Any, user: User, _: Any) -> ServerEvent | None:
-    resp = await stub.CancelMatchmaking(core_pb2.UserRef(user_id=str(user.id)))
-    return _status_error(resp)
+async def _h_cancel_mm(stub: Stub, user: User, _: CancelMMMsg) -> CamelModel | None:
+    resp = await stub.CancelMatchmaking(pb.UserRef(username=user.username))
+    return _err_from_status(resp)
 
 
-async def _h_game_move(stub: Any, user: User, cmd: GameMove) -> ServerEvent | None:
+async def _h_game_move(stub: Stub, user: User, cmd: GameMoveMsg) -> CamelModel | None:
     resp = await stub.MakeMove(
-        core_pb2.MoveReq(user_id=str(user.id), uci=cmd.uci)
+        pb.MoveReq(username=user.username, uci=cmd.data.move)
     )
-    return _status_error(resp)
+    return _err_from_status(resp)
 
 
-async def _h_game_resign(stub: Any, user: User, _: Any) -> ServerEvent | None:
-    resp = await stub.Resign(core_pb2.UserRef(user_id=str(user.id)))
-    return _status_error(resp)
+async def _h_game_chat(stub: Stub, user: User, cmd: GameChatSendMsg) -> CamelModel | None:
+    resp = await stub.SendChat(pb.ChatReq(username=user.username, text=cmd.data))
+    return _err_from_status(resp)
 
 
-HANDLERS: dict[str, Handler] = {
-    "ping":          _h_ping,
-    "lobby.create":  _h_lobby_create,
-    "lobby.join":    _h_lobby_join,
-    "lobby.leave":   _h_lobby_leave,
-    "lobby.seat":    _h_lobby_seat,
-    "lobby.unseat":  _h_lobby_unseat,
-    "lobby.kick":    _h_lobby_kick,
-    "lobby.config":  _h_lobby_config,
-    "queue.start":   _h_queue_start,
-    "queue.cancel":  _h_queue_cancel,
-    "game.move":     _h_game_move,
-    "game.resign":   _h_game_resign,
+async def _h_game_resign(stub: Stub, user: User, _: GameResignMsg) -> CamelModel | None:
+    resp = await stub.Resign(pb.UserRef(username=user.username))
+    return _err_from_status(resp)
+
+
+HANDLERS: dict[int, Handler] = {
+    WsMsgType.PING.value:               _h_ping,
+    WsMsgType.REQ_SYNC.value:           _h_req_sync,
+    WsMsgType.LOBBY_CREATE.value:       _h_lobby_create,
+    WsMsgType.LOBBY_LEAVE.value:        _h_lobby_leave,
+    WsMsgType.LOBBY_KICK.value:         _h_lobby_kick,
+    WsMsgType.INVITE_SEND.value:        _h_invite_send,
+    WsMsgType.INVITE_ACCEPT.value:      _h_invite_accept,
+    WsMsgType.INVITE_REJECT.value:      _h_invite_reject,
+    WsMsgType.LOBBY_CONFIG.value:       _h_lobby_config,
+    WsMsgType.START_MM.value:           _h_start_mm,
+    WsMsgType.CANCEL_MM.value:          _h_cancel_mm,
+    WsMsgType.GAME_MOVE.value:          _h_game_move,
+    WsMsgType.GAME_CHAT_MSG_SEND.value: _h_game_chat,
+    WsMsgType.GAME_RESIGN.value:        _h_game_resign,
 }
 
 
-async def dispatch(
-    stub: core_pb2_grpc.CoreServiceStub,
-    user: User,
-    raw: str,
-) -> ServerEvent | None:
+async def dispatch(stub: Stub, user: User, raw: str) -> CamelModel | None:
     try:
-        cmd: ClientEvent = ClientEventAdapter.validate_json(raw)
+        cmd: ClientMsg = ClientMsgAdapter.validate_json(raw)
     except ValidationError as exc:
-        return ErrorEvent(
-            code="bad_request",
-            message=json.dumps(exc.errors(include_url=False), ensure_ascii=False),
+        return ErrorMsg(
+            data=ErrorData(
+                code="bad_request",
+                message=json.dumps(
+                    exc.errors(include_url=False), ensure_ascii=False
+                ),
+            )
         )
     except ValueError:
-        return ErrorEvent(code="bad_request", message="invalid json")
+        return ErrorMsg(data=ErrorData(code="bad_request", message="invalid json"))
 
-    handler = HANDLERS[cmd.type]
+    handler = HANDLERS.get(cmd.type)
+    if handler is None:
+        return ErrorMsg(
+            data=ErrorData(code="unknown_type", message=f"no handler for type={cmd.type}")
+        )
     try:
         return await handler(stub, user, cmd)
     except grpc.aio.AioRpcError as exc:
-        logger.warning("grpc error on %s: %s", cmd.type, exc)
-        return _grpc_error(exc)
-
-
-def _lobby_from_pb(lobby: core_pb2.LobbyState, user_id: UUID) -> LobbyPayload:
-    seats: list[Any] = []
-    your_pos: int | None = None
-    uid_str = str(user_id)
-    for idx, seat in enumerate(lobby.seats):
-        if seat.empty:
-            seats.append(None)
-            continue
-        seats.append(
-            {
-                "user_id": seat.user_id,
-                "username": seat.username,
-                "rating": seat.rating,
-            }
-        )
-        if seat.user_id == uid_str:
-            your_pos = idx
-    state: Any = "in_queue" if lobby.state == "IN_QUEUE" else "idle"
-    return LobbyPayload.model_validate(
-        {
-            "id": lobby.id,
-            "leader_id": lobby.leader_id,
-            "seats": seats,
-            "config": {
-                "initial_ms": lobby.config.initial_ms,
-                "increment_ms": lobby.config.increment_ms,
-                "rated": lobby.config.rated,
-            },
-            "state": state,
-            "your_pos": your_pos,
-        }
-    )
-
-
-def _game_from_pb(game: core_pb2.GameState) -> GameStatePayload:
-    pockets_raw = json.loads(game.pockets.json) if game.pockets.json else {
-        "b0": {"w": {}, "b": {}},
-        "b1": {"w": {}, "b": {}},
-    }
-    return GameStatePayload.model_validate(
-        {
-            "game_id": game.game_id,
-            "board": game.board,
-            "color": game.color,
-            "partner_id": game.partner_id,
-            "opponents": list(game.opponents),
-            "fen": game.fen,
-            "mate_fen": game.mate_fen,
-            "pockets": pockets_raw,
-            "last_move": game.last_move,
-            "clocks": {
-                "b0w": game.clocks.b0w,
-                "b0b": game.clocks.b0b,
-                "b1w": game.clocks.b1w,
-                "b1b": game.clocks.b1b,
-            },
-            "your_turn": game.your_turn,
-            "winner": game.winner,
-        }
-    )
-
-
-def snapshot_from_pb(resp: core_pb2.SnapshotResp, user_id: UUID) -> ServerEvent:
-    if not resp.ok:
-        return ErrorEvent(
-            code=resp.error_code or "snapshot_failed",
-            message=resp.message or "",
-        )
-    state: SnapshotStateStr
-    if resp.state == "LOBBY":
-        state = "LOBBY"
-    elif resp.state == "GAME":
-        state = "GAME"
-    else:
-        state = "IDLE"
-    lobby = _lobby_from_pb(resp.lobby, user_id) if resp.HasField("lobby") else None
-    game = _game_from_pb(resp.game) if resp.HasField("game") else None
-    return SnapshotEvent(state=state, lobby=lobby, game=game)
+        logger.warning("grpc error on type=%s: %s", cmd.type, exc)
+        return _err_from_grpc(exc)

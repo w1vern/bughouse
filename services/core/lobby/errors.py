@@ -14,6 +14,10 @@ ERR_LOBBY_FULL = "lobby_full"
 ERR_BAD_CONFIG = "bad_config"
 ERR_CANNOT_MODIFY_WHILE_IN_QUEUE = "cannot_modify_while_in_queue"
 ERR_USER_NOT_FOUND = "user_not_found"
+ERR_INVITE_TARGET_BUSY = "invite_target_busy"
+ERR_INVITE_TARGET_OFFLINE = "invite_target_offline"
+ERR_INVITE_NOT_FOUND = "invite_not_found"
+ERR_INVITE_SELF = "invite_self"
 
 
 class LobbyError(_BaseLobbyError):
@@ -42,7 +46,7 @@ class LobbyError(_BaseLobbyError):
 
     @classmethod
     def seat_out_of_range(cls) -> "LobbyError":
-        return cls(ERR_SEAT_OUT_OF_RANGE, "Seat index must be in {1, 2, 3}")
+        return cls(ERR_SEAT_OUT_OF_RANGE, "Seat index must be in {0, 1, 2, 3}")
 
     @classmethod
     def target_not_in_lobby(cls) -> "LobbyError":
@@ -67,3 +71,19 @@ class LobbyError(_BaseLobbyError):
     @classmethod
     def user_not_found(cls) -> "LobbyError":
         return cls(ERR_USER_NOT_FOUND, "User not found in the database")
+
+    @classmethod
+    def invite_target_busy(cls) -> "LobbyError":
+        return cls(ERR_INVITE_TARGET_BUSY, "Invitee is already in a lobby or game")
+
+    @classmethod
+    def invite_target_offline(cls) -> "LobbyError":
+        return cls(ERR_INVITE_TARGET_OFFLINE, "Invitee is not online")
+
+    @classmethod
+    def invite_not_found(cls) -> "LobbyError":
+        return cls(ERR_INVITE_NOT_FOUND, "No matching invite")
+
+    @classmethod
+    def invite_self(cls) -> "LobbyError":
+        return cls(ERR_INVITE_SELF, "Cannot invite yourself")

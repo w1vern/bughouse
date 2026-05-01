@@ -2,122 +2,64 @@ syntax = "proto3";
 package process;
 
 service CoreService {
-  // Lobby
-  rpc CreateLobby(UserRef)          returns (LobbyResp);
-  rpc JoinLobby(JoinReq)            returns (LobbyResp);
+  // Lobby (no SeatPlayer/UnseatPlayer/JoinLobby — joining is invite-only)
+  rpc CreateLobby(CreateLobbyReq)   returns (StatusResp);
   rpc LeaveLobby(UserRef)           returns (StatusResp);
-  rpc SeatPlayer(SeatReq)           returns (StatusResp);
-  rpc UnseatPlayer(UnseatReq)       returns (StatusResp);
   rpc KickFromLobby(KickReq)        returns (StatusResp);
   rpc SetLobbyConfig(SetConfigReq)  returns (StatusResp);
   rpc StartMatchmaking(UserRef)     returns (StatusResp);
   rpc CancelMatchmaking(UserRef)    returns (StatusResp);
-  rpc GetLobby(LobbyRef)            returns (LobbyStateResp);
+
+  // Invites (lobby leader only)
+  rpc SendInvite(SendInviteReq)     returns (StatusResp);
+  rpc AcceptInvite(AcceptInviteReq) returns (StatusResp);
+  rpc RejectInvite(RejectInviteReq) returns (StatusResp);
 
   // Game
   rpc MakeMove(MoveReq)             returns (StatusResp);
   rpc Resign(UserRef)               returns (StatusResp);
-  rpc GetGameState(UserRef)         returns (GameStateResp);
+  rpc SendChat(ChatReq)             returns (StatusResp);
 
-  // Session
+  // Sync — returns the full SYNC payload (WsSyncData) as JSON
   rpc GetUserSnapshot(UserRef)      returns (SnapshotResp);
 }
 
 // ---------- Refs / requests ----------
-message UserRef     { string user_id = 1; }
-message LobbyRef    { string lobby_id = 1; }
+message UserRef          { string username = 1; }
 
-message JoinReq     { string user_id = 1; string lobby_id = 2; }
-message SeatReq     { string leader_id = 1; string target_user_id = 2; int32 pos = 3; }
-message UnseatReq   { string leader_id = 1; int32 pos = 2; }
-message KickReq     { string leader_id = 1; string target_user_id = 2; }
+message CreateLobbyReq   {
+  string username     = 1;
+  int32  initial_ms   = 2;
+  int32  increment_ms = 3;
+}
+
+message KickReq          { string leader = 1; string target = 2; }
+
 message SetConfigReq {
-  string leader_id    = 1;
+  string leader       = 1;
   int32  initial_ms   = 2;
   int32  increment_ms = 3;
   bool   rated        = 4;
 }
-message MoveReq     { string user_id = 1; string uci = 2; }
 
-// ---------- Domain ----------
-message LobbyConfig {
-  int32 initial_ms   = 1;
-  int32 increment_ms = 2;
-  bool  rated        = 3;
-}
+message MoveReq          { string username = 1; string uci = 2; }
+message ChatReq          { string username = 1; string text = 2; }
 
-message Seat {
-  bool   empty    = 1;
-  string user_id  = 2;
-  string username = 3;
-  double rating   = 4;
-}
-
-message LobbyState {
-  string        id        = 1;
-  string        leader_id = 2;
-  repeated Seat seats     = 3;
-  LobbyConfig   config    = 4;
-  string        state     = 5;
-}
-
-message Clocks {
-  int32 b0w = 1;
-  int32 b0b = 2;
-  int32 b1w = 3;
-  int32 b1b = 4;
-}
-
-message Pockets { string json = 1; }
-
-message GameState {
-  string          game_id     = 1;
-  int32           board       = 2;
-  int32           color       = 3;
-  string          partner_id  = 4;
-  repeated string opponents   = 5;
-  string          fen         = 6;
-  string          mate_fen    = 7;
-  Pockets         pockets     = 8;
-  string          last_move   = 9;
-  Clocks          clocks      = 10;
-  bool            your_turn   = 11;
-  string          winner      = 12;
-}
+message SendInviteReq    { string sender = 1; string receiver = 2; int32 idx = 3; }
+message AcceptInviteReq  { string receiver = 1; string sender = 2; }
+message RejectInviteReq  { string receiver = 1; string sender = 2; }
 
 // ---------- Responses ----------
-message LobbyResp {
-  bool   ok         = 1;
-  string error_code = 2;
-  string message    = 3;
-  string lobby_id   = 4;
-}
-
 message StatusResp {
   bool   ok         = 1;
   string error_code = 2;
   string message    = 3;
 }
 
-message LobbyStateResp {
-  bool       ok         = 1;
-  string     error_code = 2;
-  string     message    = 3;
-  LobbyState lobby      = 4;
-}
-
-message GameStateResp {
-  bool      ok         = 1;
-  string    error_code = 2;
-  string    message    = 3;
-  GameState game       = 4;
-}
-
 message SnapshotResp {
-  bool       ok         = 1;
-  string     error_code = 2;
-  string     message    = 3;
-  string     state      = 4;
-  LobbyState lobby      = 5;
-  GameState  game       = 6;
+  bool   ok            = 1;
+  string error_code    = 2;
+  string message       = 3;
+  // JSON-serialized WsSyncData ({state, lobby?, game?}); empty if !ok.
+  string sync_json     = 4;
 }

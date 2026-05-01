@@ -7,13 +7,20 @@ from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from redis.asyncio import Redis
 
 from shared.database import User
-from shared.events import ErrorEvent, ServerEvent
+from shared.events import (
+    CamelModel,
+    ErrorData,
+    ErrorMsg,
+    SyncData,
+    SyncMsg,
+    dump,
+)
 from shared.infrastructure import setup_logger
 from shared.protobuf import core_pb2, core_pb2_grpc
 
 from ..depends import get_db_user
-from ..redis import get_redis_client
-from .dispatcher import dispatch, snapshot_from_pb
+from ..redis import RedisType, get_redis_client
+from .dispatcher import dispatch
 from .grpc_client import get_core_stub
 
 logger = setup_logger(__name__)
@@ -22,6 +29,7 @@ router = APIRouter(prefix="/ws", tags=["WebSocket"])
 
 ONLINE_KEY_PREFIX = "ws:online:"
 USER_CHANNEL_PREFIX = "ws:user:"
+ACTIVE_SET_KEY = RedisType.active_player.value
 LOCK_TTL_SEC = 30
 LOCK_REFRESH_SEC = 10
 
@@ -42,8 +50,8 @@ end
 """
 
 
-async def _send_event(websocket: WebSocket, event: ServerEvent) -> None:
-    await websocket.send_text(event.model_dump_json())
+async def _send(websocket: WebSocket, msg: CamelModel) -> None:
+    await websocket.send_text(dump(msg))
 
 
 async def _refresh_lock_loop(redis: Redis, key: str, conn_uuid: str) -> None:
@@ -60,27 +68,47 @@ async def _refresh_lock_loop(redis: Redis, key: str, conn_uuid: str) -> None:
         raise
 
 
-async def _send_snapshot(
+async def _send_initial_sync(
     stub: core_pb2_grpc.CoreServiceStub,
     user: User,
     websocket: WebSocket,
+    redis: Redis,
 ) -> None:
     try:
         resp: core_pb2.SnapshotResp = await stub.GetUserSnapshot(
-            core_pb2.UserRef(user_id=str(user.id))
+            core_pb2.UserRef(username=user.username)
         )
     except grpc.aio.AioRpcError as exc:
-        logger.warning("GetUserSnapshot failed for user=%s: %s", user.id, exc)
+        logger.warning("GetUserSnapshot failed for user=%s: %s", user.username, exc)
         code = exc.code().name if exc.code() is not None else "grpc_error"
-        await _send_event(
-            websocket, ErrorEvent(code=code, message=exc.details() or "")
+        await _send(
+            websocket, ErrorMsg(data=ErrorData(code=code, message=exc.details() or ""))
         )
         return
-    await _send_event(websocket, snapshot_from_pb(resp, user.id))
+    if not resp.ok:
+        await _send(
+            websocket,
+            ErrorMsg(
+                data=ErrorData(
+                    code=resp.error_code or "snapshot_failed",
+                    message=resp.message or "",
+                )
+            ),
+        )
+        return
+    sync = SyncData.model_validate_json(resp.sync_json)
+    await _send(websocket, SyncMsg(data=sync))
+
+    # Add to active set only when user is idle (no lobby/game).
+    if sync.state == "IDLE":
+        try:
+            await redis.sadd(ACTIVE_SET_KEY, user.username)  # type: ignore[misc]
+        except Exception:
+            logger.exception("active_player SADD failed")
 
 
 async def _pubsub_loop(redis: Redis, user: User, websocket: WebSocket) -> None:
-    channel = f"{USER_CHANNEL_PREFIX}{user.id}"
+    channel = f"{USER_CHANNEL_PREFIX}{user.username}"
     pubsub = redis.pubsub()
     try:
         await pubsub.subscribe(channel)
@@ -113,7 +141,7 @@ async def _client_loop(
     async for raw in websocket.iter_text():
         reply = await dispatch(stub, user, raw)
         if reply is not None:
-            await _send_event(websocket, reply)
+            await _send(websocket, reply)
 
 
 @router.websocket(path="")
@@ -124,16 +152,16 @@ async def websocket_endpoint(
     stub: core_pb2_grpc.CoreServiceStub = Depends(get_core_stub),
 ) -> None:
     await websocket.accept()
-    logger.debug("connected")
+    logger.debug("ws connected: %s", user.username)
 
-    key = f"{ONLINE_KEY_PREFIX}{user.id}"
+    key = f"{ONLINE_KEY_PREFIX}{user.username}"
     conn_uuid = uuid4().hex
     acquired = await redis.set(key, conn_uuid, nx=True, ex=LOCK_TTL_SEC)
     if not acquired:
         await websocket.close(code=4409, reason="already_connected")
         return
 
-    await _send_snapshot(stub, user, websocket)
+    await _send_initial_sync(stub, user, websocket, redis)
 
     tasks: list[asyncio.Task[None]] = [
         asyncio.create_task(_refresh_lock_loop(redis, key, conn_uuid), name="ws-refresh"),
@@ -157,6 +185,10 @@ async def websocket_endpoint(
             if exc and not isinstance(exc, (WebSocketDisconnect, asyncio.CancelledError)):
                 logger.exception("ws task %s failed", task.get_name(), exc_info=exc)
     finally:
+        try:
+            await redis.srem(ACTIVE_SET_KEY, user.username)  # type: ignore[misc]
+        except Exception:
+            logger.exception("active_player SREM failed")
         try:
             await redis.eval(_RELEASE_LOCK_LUA, 1, key, conn_uuid)
         except Exception:

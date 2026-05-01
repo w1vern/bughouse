@@ -7,7 +7,6 @@ from uuid import UUID
 
 @dataclass(slots=True)
 class Seat:
-    user_id: UUID
     username: str
     rating: float
 
@@ -27,21 +26,21 @@ class LobbyState(Enum):
 @dataclass(slots=True)
 class Lobby:
     id: UUID
-    leader_id: UUID
+    leader: str
     seats: list[Seat | None]
     config: LobbyConfig
     state: LobbyState
 
     @property
-    def user_ids(self) -> list[UUID]:
-        return [s.user_id for s in self.seats if s is not None]
+    def usernames(self) -> list[str]:
+        return [s.username for s in self.seats if s is not None]
 
     @property
     def size(self) -> int:
         return sum(1 for s in self.seats if s is not None)
 
-    def seat_of(self, user_id: UUID) -> int | None:
+    def seat_of(self, username: str) -> int | None:
         for i, s in enumerate(self.seats):
-            if s is not None and s.user_id == user_id:
+            if s is not None and s.username == username:
                 return i
         return None

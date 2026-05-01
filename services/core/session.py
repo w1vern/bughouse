@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from uuid import UUID
-
-from shared.protobuf import core_pb2 as pb
+from shared.events import SyncData
 
 from .game.manager import GameManager
+from .game.state import build_bughouse
 from .lobby.manager import LobbyManager
-from .pb_builders import build_game_state, build_lobby_state
+from .notifier import lobby_data
 
 
 class UserSessionIndex:
@@ -14,19 +13,19 @@ class UserSessionIndex:
         self._lobbies = lobbies
         self._games = games
 
-    def get_snapshot(self, user_id: UUID) -> pb.SnapshotResp:
-        game = self._games.get_game_by_user(user_id)
+    def get_sync(self, username: str) -> SyncData:
+        game = self._games.get_game_by_user(username)
         if game is not None:
-            return pb.SnapshotResp(
-                ok=True,
+            return SyncData(
                 state="GAME",
-                game=build_game_state(game, user_id),
+                lobby=None,
+                game=build_bughouse(game),
             )
-        lobby = self._lobbies.get_by_user(user_id)
+        lobby = self._lobbies.get_by_user(username)
         if lobby is not None:
-            return pb.SnapshotResp(
-                ok=True,
+            return SyncData(
                 state="LOBBY",
-                lobby=build_lobby_state(lobby),
+                lobby=lobby_data(lobby),
+                game=None,
             )
-        return pb.SnapshotResp(ok=True, state="IDLE")
+        return SyncData(state="IDLE", lobby=None, game=None)
