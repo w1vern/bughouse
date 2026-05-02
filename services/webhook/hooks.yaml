@@ -1,6 +1,5 @@
 - id: staging
   execute-command: /bin/sh
-  command-working-directory: /workspace
   pass-arguments-to-command:
     - source: string
       name: /usr/local/bin/deploy.sh
