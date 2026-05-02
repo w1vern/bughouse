@@ -254,35 +254,45 @@ class GameManager:
         reason: EndReason,
     ) -> None:
         if game.finished:
+            self._detach_game(game)
             return
         game.finished = True
         game.result = result
         game.reason = reason
         game.ended_at = time.monotonic()
 
-        await game.clocks.shutdown()
+        self._detach_game(game)
+
         abort = self._abort_tasks.pop(game.id, None)
-        if abort is not None:
+        if abort is not None and abort is not asyncio.current_task():
             abort.cancel()
 
-        for p in game.players:
-            self._user_to_game.pop(p.username, None)
-            await self._notifier.mark_idle_if_online(p.username)
-
-        diffs = (0.0, 0.0, 0.0, 0.0)
         try:
-            diffs = await self._persist(game, result)
-        except Exception:
-            logger.exception("failed to persist game %s", game.id)
+            await game.clocks.shutdown()
 
-        rating_changes = {
-            game.players[i].username: diffs[i] for i in range(4)
-        }
-        await self._notifier.publish_game_end(
-            game.usernames, result_status(result), rating_changes
-        )
+            for p in game.players:
+                await self._notifier.mark_idle_if_online(p.username)
 
+            diffs = (0.0, 0.0, 0.0, 0.0)
+            try:
+                diffs = await self._persist(game, result)
+            except Exception:
+                logger.exception("failed to persist game %s", game.id)
+
+            rating_changes = {
+                game.players[i].username: diffs[i] for i in range(4)
+            }
+            await self._notifier.publish_game_end(
+                game.usernames, result_status(result), rating_changes
+            )
+        finally:
+            self._detach_game(game)
+
+    def _detach_game(self, game: GameObj) -> None:
         self._games.pop(game.id, None)
+        for p in game.players:
+            if self._user_to_game.get(p.username) == game.id:
+                self._user_to_game.pop(p.username, None)
 
     async def _persist(
         self,

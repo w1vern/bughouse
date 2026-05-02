@@ -18,6 +18,7 @@ from services.core.game.errors import (
 from services.core.game.manager import GameManager
 from services.core.game.models import EndReason, GameObj, GameResult, PlayerRef
 from services.core.lobby.models import LobbyConfig, Seat
+from services.core.session import UserSessionIndex
 from shared.infrastructure import RankingParams
 
 
@@ -99,6 +100,7 @@ class FakeNotifier:
         self.busy.append(username)
 
     async def mark_idle_if_online(self, username: str) -> None:
+        await asyncio.sleep(0)
         self.idle.append(username)
 
     async def publish_game_start(self, usernames: list[str], bughouse: object) -> None:
@@ -330,6 +332,20 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(game_id, self.manager._games)
         self.assertEqual(self.notifier.game_ends[0][1], "Abort")
         self.assertEqual(self.session_factory.created_games[0]["result"], GameResult.ABORT.value)
+
+    async def test_abort_watchdog_does_not_leave_finished_game_in_snapshot(self) -> None:
+        sessions = UserSessionIndex(
+            lobbies=SimpleNamespace(get_by_user=lambda _username: None),  # type: ignore[arg-type]
+            games=self.manager,
+        )
+        self.manager._abort_timeout_sec = 0.01
+        await self.create_game()
+
+        await asyncio.sleep(0.05)
+
+        sync = sessions.get_sync("alice")
+        self.assertEqual(sync.state, "IDLE")
+        self.assertIsNone(sync.game)
 
     async def test_create_game_rejects_missing_user(self) -> None:
         self.users.pop("carol")
