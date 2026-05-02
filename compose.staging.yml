@@ -104,7 +104,7 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
 
   frontend:
-    image: ghcr.io/ImmortalAI/bugchess-vue:staging
+    image: ghcr.io/immortalai/bugchess-vue:staging
     env_file:
       - .env
     depends_on:
