@@ -1,5 +1,5 @@
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -11,9 +11,17 @@ from .websocket.grpc_client import (
     init_grpc_channel
 )
 
+import tomllib
+
+with open("pyproject.toml", "rb") as f:
+    data = tomllib.load(f)
+
+version = data["project"]["version"]
+
+
 
 @asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
     await init_grpc_channel()
     try:
         yield
@@ -29,6 +37,7 @@ app = FastAPI(
         "tryItOutEnabled": True,
     },
     lifespan=lifespan,
+    version=version
 )
 
 
