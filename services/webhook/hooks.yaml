@@ -1,0 +1,17 @@
+- id: staging
+  execute-command: /usr/local/bin/deploy.sh
+  command-working-directory: /workspace
+  pass-arguments-to-command:
+    - source: payload
+      name: repository
+    - source: payload
+      name: sha
+    - source: payload
+      name: ref
+  trigger-rule:
+    match:
+      type: payload-hmac-sha256
+      secret: '{{ getenv "DEPLOY_WEBHOOK_SECRET" }}'
+      parameter:
+        source: header
+        name: X-Hub-Signature-256

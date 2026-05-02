@@ -1,16 +1,16 @@
 services:
-  watchtower:
-    image: nickfedor/watchtower
+  webhook:
+    build: ./services/webhook
+    env_file:
+      - .env
+    environment:
+      - PROJECT_DIR=${PWD}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      # - ~/.docker/config.json:/config.json:ro
-    environment:
-      - WATCHTOWER_CLEANUP=true
-      - WATCHTOWER_POLL_INTERVAL=30
-      - WATCHTOWER_LABEL_ENABLE=true
-      - WATCHTOWER_INCLUDE_STOPPED=true
-      - WATCHTOWER_REVIVE_STOPPED=true
-      # - WATCHTOWER_ROLLING_RESTART=true
+      - ${PWD}:${PWD}
+      - ./services/webhook/hooks.yaml:/etc/webhook/hooks.yaml:ro
+      - ./services/webhook/deploy.sh:/usr/local/bin/deploy.sh:ro
+    working_dir: ${PWD}
     restart: unless-stopped
 
   postgres:
@@ -62,8 +62,6 @@ services:
     profiles:
       - with_backend
     restart: unless-stopped
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
 
   core:
     image: ghcr.io/w1vern/bughouse:staging
@@ -78,8 +76,6 @@ services:
     profiles:
       - with_backend
     restart: unless-stopped
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
 
   fill_db:
     image: ghcr.io/w1vern/bughouse:staging
@@ -89,8 +85,6 @@ services:
       alembic:
         condition: service_completed_successfully
     command: python -m services.fill_db
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
 
   alembic:
     image: ghcr.io/w1vern/bughouse:staging
@@ -101,8 +95,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
 
   frontend:
     image: ghcr.io/ImmortalAI/bugchess-vue:staging
@@ -114,8 +106,6 @@ services:
     profiles:
       - with_frontend
     restart: unless-stopped
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
 
   nginx:
     image: nginx:latest
