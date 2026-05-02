@@ -41,13 +41,5 @@ jobs:
           WEBHOOK_URL: ${{ secrets.STAGING_DEPLOY_WEBHOOK_URL }}
           WEBHOOK_SECRET: ${{ secrets.STAGING_DEPLOY_WEBHOOK_SECRET }}
         run: |
-          payload=$(jq -nc \
-            --arg repo "${{ github.repository }}" \
-            --arg sha "${{ github.sha }}" \
-            --arg ref "${{ github.ref }}" \
-            '{repository:$repo, sha:$sha, ref:$ref}')
-          sig="sha256=$(printf '%s' "$payload" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | awk '{print $2}')"
           curl -fsS -X POST "$WEBHOOK_URL" \
-            -H 'Content-Type: application/json' \
-            -H "X-Hub-Signature-256: $sig" \
-            -d "$payload"
+            -H "Authorization: Bearer $WEBHOOK_SECRET"
