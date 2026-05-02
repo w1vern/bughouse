@@ -112,6 +112,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+      webhook:
+        condition: service_started
     volumes:
       - ./services/nginx/nginx.conf:/etc/nginx/nginx.conf
       - ./logs/nginx:/var/log/nginx/
