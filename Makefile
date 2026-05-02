@@ -47,3 +47,6 @@ proto:
 		--grpc_python_out=. \
 		--mypy_grpc_out=. \
 		shared/protobuf/core.proto
+
+cd:
+	curl -i -X POST http(s)://<DOMAIN>/deploy/ -H "Authorization: Bearer <SECRET>"
