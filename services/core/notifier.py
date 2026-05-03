@@ -136,8 +136,12 @@ class Notifier:
         self,
         usernames: Iterable[str],
         msg: CamelModel,
+        *,
+        exclude: str | None = None,
     ) -> None:
         for u in usernames:
+            if u == exclude:
+                continue
             await self._send(u, msg)
 
     # ------------- Lobby -------------
@@ -232,6 +236,8 @@ class Notifier:
         uci: str,
         white_clock_time: int,
         black_clock_time: int,
+        *,
+        exclude: str | None = None,
     ) -> None:
         msg = GameMoveReceiveMsg(
             data=GameMoveServerData(
@@ -241,7 +247,7 @@ class Notifier:
                 black_clock_time=black_clock_time,
             )
         )
-        await self._fanout(usernames, msg)
+        await self._fanout(usernames, msg, exclude=exclude)
 
     async def publish_game_end(
         self,

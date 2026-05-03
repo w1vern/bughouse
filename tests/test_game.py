@@ -113,8 +113,11 @@ class FakeNotifier:
         uci: str,
         white_clock_time: int,
         black_clock_time: int,
+        *,
+        exclude: str | None = None,
     ) -> None:
-        self.moves.append((list(usernames), idx, uci, white_clock_time, black_clock_time))
+        recipients = [u for u in usernames if u != exclude]
+        self.moves.append((recipients, idx, uci, white_clock_time, black_clock_time))
 
     async def publish_game_end(
         self,
@@ -245,7 +248,7 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bughouse.boards[1].players[1].name, "dave")
         self.assertIs(self.manager.get_game_by_user("carol"), game)
 
-    async def test_make_move_records_move_publishes_it_and_advances_turn(self) -> None:
+    async def test_make_move_records_move_publishes_to_other_players_and_advances_turn(self) -> None:
         game_id = await self.create_game()
 
         await self.manager.make_move("alice", "e2e4")
@@ -262,7 +265,7 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(game_id, self.manager._abort_tasks)
         self.assertEqual(len(self.notifier.moves), 1)
         usernames, board_idx, uci, white_clock_time, black_clock_time = self.notifier.moves[0]
-        self.assertEqual(usernames, list(PLAYER_NAMES))
+        self.assertEqual(usernames, ["bob", "carol", "dave"])
         self.assertEqual((board_idx, uci), (0, "e2e4"))
         self.assertGreater(white_clock_time, 60_000)
         self.assertEqual(black_clock_time, 60_000)

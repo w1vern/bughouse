@@ -168,19 +168,19 @@ class GameManager:
             winner = (
                 GameResult.TEAM_B if loser_team == GameResult.TEAM_A else GameResult.TEAM_A
             )
-            await self._publish_move(game, board_idx, uci)
+            await self._publish_move(game, board_idx, uci, exclude=username)
             await self._finish(game, winner, EndReason.CHECKMATE)
             return
 
         if game.boards.is_draw_rule():
-            await self._publish_move(game, board_idx, uci)
+            await self._publish_move(game, board_idx, uci, exclude=username)
             await self._finish(game, GameResult.DRAW, EndReason.DRAW_RULE)
             return
 
         next_color = game.boards.turn(board_idx)
         await game.clocks.start(board_idx, next_color, self._make_flag_cb(game.id))
 
-        await self._publish_move(game, board_idx, uci)
+        await self._publish_move(game, board_idx, uci, exclude=username)
 
     async def resign(self, username: str) -> None:
         game = self.get_game_by_user(username)
@@ -216,14 +216,26 @@ class GameManager:
 
     # ---------------- Internals ----------------
 
-    async def _publish_move(self, game: GameObj, board_idx: int, uci: str) -> None:
+    async def _publish_move(
+        self,
+        game: GameObj,
+        board_idx: int,
+        uci: str,
+        *,
+        exclude: str | None = None,
+    ) -> None:
         snap = game.clocks.snapshot()
         if board_idx == 0:
             white_clock_time, black_clock_time = snap["b0w"], snap["b0b"]
         else:
             white_clock_time, black_clock_time = snap["b1w"], snap["b1b"]
         await self._notifier.publish_move(
-            game.usernames, board_idx, uci, white_clock_time, black_clock_time,
+            game.usernames,
+            board_idx,
+            uci,
+            white_clock_time,
+            black_clock_time,
+            exclude=exclude,
         )
 
     def _make_flag_cb(self, game_id: UUID) -> FlagCallback:
