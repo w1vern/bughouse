@@ -54,8 +54,8 @@ def _slot_payload(seat: Seat | None) -> LobbyPlayerSlot | None:
 
 def lobby_data(lobby: Lobby) -> LobbyData:
     return LobbyData(
-        init_ms=lobby.config.initial_ms,
-        incr_ms=lobby.config.increment_ms,
+        clock_time=lobby.config.clock_time,
+        incr=lobby.config.incr,
         rated=lobby.config.rated,
         in_queue=lobby.state == LobbyState.IN_QUEUE,
         slots=[_slot_payload(s) for s in lobby.seats],
@@ -65,8 +65,8 @@ def lobby_data(lobby: Lobby) -> LobbyData:
 
 def lobby_config_payload(lobby: Lobby) -> LobbyTimeRatingData:
     return LobbyTimeRatingData(
-        init_ms=lobby.config.initial_ms,
-        incr_ms=lobby.config.increment_ms,
+        clock_time=lobby.config.clock_time,
+        incr=lobby.config.incr,
         rated=lobby.config.rated,
     )
 
@@ -230,11 +230,16 @@ class Notifier:
         usernames: Iterable[str],
         idx: int,
         uci: str,
-        white_ms: int,
-        black_ms: int,
+        white_clock_time: int,
+        black_clock_time: int,
     ) -> None:
         msg = GameMoveReceiveMsg(
-            data=GameMoveServerData(idx=idx, move=uci, white=white_ms, black=black_ms)  # type: ignore[arg-type]
+            data=GameMoveServerData(
+                idx=idx,  # type: ignore[arg-type]
+                move=uci,
+                white_clock_time=white_clock_time,
+                black_clock_time=black_clock_time,
+            )
         )
         await self._fanout(usernames, msg)
 

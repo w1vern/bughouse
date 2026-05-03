@@ -101,7 +101,7 @@ class GameManager:
             id=uuid4(),
             players=players,
             boards=BughouseBoards(),
-            clocks=Clocks(config.initial_ms),
+            clocks=Clocks(config.clock_time),
             config=config,
             started_at=time.monotonic(),
         )
@@ -146,7 +146,7 @@ class GameManager:
         except (chess.IllegalMoveError, chess.InvalidMoveError, ValueError) as exc:
             raise GameError.illegal_move(str(exc)) from exc
 
-        spent = await game.clocks.stop_and_apply(board_idx, game.config.increment_ms)
+        spent = await game.clocks.stop_and_apply(board_idx, game.config.incr)
         game.moves.append(
             MoveRecord(
                 board=board_idx,
@@ -219,10 +219,12 @@ class GameManager:
     async def _publish_move(self, game: GameObj, board_idx: int, uci: str) -> None:
         snap = game.clocks.snapshot()
         if board_idx == 0:
-            w_ms, b_ms = snap["b0w"], snap["b0b"]
+            white_clock_time, black_clock_time = snap["b0w"], snap["b0b"]
         else:
-            w_ms, b_ms = snap["b1w"], snap["b1b"]
-        await self._notifier.publish_move(game.usernames, board_idx, uci, w_ms, b_ms)
+            white_clock_time, black_clock_time = snap["b1w"], snap["b1b"]
+        await self._notifier.publish_move(
+            game.usernames, board_idx, uci, white_clock_time, black_clock_time,
+        )
 
     def _make_flag_cb(self, game_id: UUID) -> FlagCallback:
         async def cb(board_idx: int, color: chess.Color) -> None:
@@ -353,8 +355,8 @@ class GameManager:
 
             await game_repo.create(
                 result=result.value,
-                game_time=game.config.initial_ms / 1000.0,
-                increment=game.config.increment_ms / 1000.0,
+                game_time=game.config.clock_time / 1000.0,
+                increment=game.config.incr / 1000.0,
                 users=(users[0], users[1], users[2], users[3]),
                 diffs=diffs,
                 moves=moves_payload,

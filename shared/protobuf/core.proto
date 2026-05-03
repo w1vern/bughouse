@@ -29,16 +29,16 @@ message UserRef          { string username = 1; }
 
 message CreateLobbyReq   {
   string username     = 1;
-  int32  initial_ms   = 2;
-  int32  increment_ms = 3;
+  int32  clock_time   = 2;
+  int32  incr         = 3;
 }
 
 message KickReq          { string leader = 1; string target = 2; }
 
 message SetConfigReq {
   string leader       = 1;
-  int32  initial_ms   = 2;
-  int32  increment_ms = 3;
+  int32  clock_time   = 2;
+  int32  incr         = 3;
   bool   rated        = 4;
 }
 

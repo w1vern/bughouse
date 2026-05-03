@@ -185,10 +185,10 @@ class LobbyManager:
                 return
 
     def _validate_config(self, cfg: LobbyConfig) -> None:
-        if cfg.initial_ms <= 0:
-            raise LobbyError.bad_config("initial_ms must be positive")
-        if cfg.increment_ms < 0:
-            raise LobbyError.bad_config("increment_ms must be non-negative")
+        if cfg.clock_time <= 0:
+            raise LobbyError.bad_config("clock_time must be positive")
+        if cfg.incr < 0:
+            raise LobbyError.bad_config("incr must be non-negative")
 
     async def _load_seat(self, username: str) -> Seat:
         async with self._user_repo_factory() as repo:

@@ -74,8 +74,8 @@ class LobbyPlayerSlot(CamelModel):
 
 
 class LobbyTimeData(CamelModel):
-    init_ms: int = Field(ge=0)
-    incr_ms: int = Field(ge=0)
+    clock_time: int = Field(ge=0)
+    incr: int = Field(ge=0)
 
 
 class LobbyTimeRatingData(LobbyTimeData):
@@ -134,7 +134,7 @@ class PlayerData(CamelModel):
     name: str
     rating: float
     color: ChessColor
-    clock: int = Field(ge=0)
+    clock_time: int = Field(ge=0)
     pocket: PocketData
 
 
@@ -158,8 +158,8 @@ class GameMoveData(CamelModel):
 class GameMoveServerData(CamelModel):
     idx: BoardIdx
     move: str
-    white: int = Field(ge=0)
-    black: int = Field(ge=0)
+    white_clock_time: int = Field(ge=0)
+    black_clock_time: int = Field(ge=0)
 
 
 class GameEndData(CamelModel):

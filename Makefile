@@ -50,3 +50,9 @@ proto:
 
 cd:
 	curl -i -X POST http(s)://<DOMAIN>/deploy/ -H "Authorization: Bearer <SECRET>"
+
+staging:
+	git checkout staging &&
+	git merge dev &&
+	git push &&
+	git checkout dev

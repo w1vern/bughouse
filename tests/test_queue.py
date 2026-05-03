@@ -67,7 +67,7 @@ def make_lobby(
         id=uuid4(),
         leader=leader,
         seats=seats,
-        config=config or LobbyConfig(initial_ms=60_000, increment_ms=1_000),
+        config=config or LobbyConfig(clock_time=60_000, incr=1_000),
         state=state,
     )
 
@@ -364,8 +364,8 @@ class QueueManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(config, lobbies[0].config)
 
     async def test_tick_does_not_match_lobbies_with_different_configs(self) -> None:
-        fast = LobbyConfig(initial_ms=60_000, increment_ms=1_000, rated=False)
-        slow = LobbyConfig(initial_ms=120_000, increment_ms=1_000, rated=False)
+        fast = LobbyConfig(clock_time=60_000, incr=1_000, rated=False)
+        slow = LobbyConfig(clock_time=120_000, incr=1_000, rated=False)
         first = make_lobby(["alice", "bob", None, None], config=fast)
         second = make_lobby([None, None, "carol", "dave"], config=slow)
         await self.manager.enqueue(first)

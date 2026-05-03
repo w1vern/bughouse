@@ -19,14 +19,14 @@ def _key_name(board_idx: int, color: chess.Color) -> str:
 
 
 class Clocks:
-    __slots__ = ("ms", "_active", "_lock", "_shutdown")
+    __slots__ = ("clock_time", "_active", "_lock", "_shutdown")
 
-    def __init__(self, initial_ms: int) -> None:
-        self.ms: dict[tuple[int, chess.Color], int] = {
-            (0, chess.WHITE): initial_ms,
-            (0, chess.BLACK): initial_ms,
-            (1, chess.WHITE): initial_ms,
-            (1, chess.BLACK): initial_ms,
+    def __init__(self, clock_time: int) -> None:
+        self.clock_time: dict[tuple[int, chess.Color], int] = {
+            (0, chess.WHITE): clock_time,
+            (0, chess.BLACK): clock_time,
+            (1, chess.WHITE): clock_time,
+            (1, chess.BLACK): clock_time,
         }
         self._active: dict[int, tuple[chess.Color, asyncio.Task[None], float]] = {}
         self._lock = asyncio.Lock()
@@ -41,14 +41,14 @@ class Clocks:
         async with self._lock:
             if self._shutdown:
                 return
-            remaining = self.ms[(board_idx, color)]
+            remaining = self.clock_time[(board_idx, color)]
             started_at = time.monotonic()
             task = asyncio.create_task(
                 self._watchdog(board_idx, color, remaining, on_flag)
             )
             self._active[board_idx] = (color, task, started_at)
 
-    async def stop_and_apply(self, board_idx: int, increment_ms: int) -> int:
+    async def stop_and_apply(self, board_idx: int, incr: int) -> int:
         async with self._lock:
             entry = self._active.pop(board_idx, None)
             if entry is None:
@@ -61,11 +61,11 @@ class Clocks:
         except (asyncio.CancelledError, Exception):
             pass
         async with self._lock:
-            current = self.ms[(board_idx, color)]
-            new_val = current - elapsed + increment_ms
+            current = self.clock_time[(board_idx, color)]
+            new_val = current - elapsed + incr
             if new_val < 0:
                 new_val = 0
-            self.ms[(board_idx, color)] = new_val
+            self.clock_time[(board_idx, color)] = new_val
             return elapsed
 
     async def shutdown(self) -> None:
@@ -84,7 +84,7 @@ class Clocks:
     def snapshot(self) -> dict[str, int]:
         now = time.monotonic()
         out: dict[str, int] = {}
-        for (board_idx, color), base in self.ms.items():
+        for (board_idx, color), base in self.clock_time.items():
             active = self._active.get(board_idx)
             if active is not None and active[0] == color:
                 elapsed = int((now - active[2]) * 1000)
@@ -113,7 +113,7 @@ class Clocks:
             if entry is None or entry[0] != color or entry[1] is not me:
                 return
             self._active.pop(board_idx, None)
-            self.ms[(board_idx, color)] = 0
+            self.clock_time[(board_idx, color)] = 0
         try:
             await on_flag(board_idx, color)
         except Exception:

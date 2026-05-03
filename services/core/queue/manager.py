@@ -144,7 +144,7 @@ class QueueManager:
     async def _do_tick(self) -> None:
         groups: dict[tuple[bool, int, int], list[QueueEntry]] = defaultdict(list)
         for entry in self._entries.values():
-            key = (entry.config.rated, entry.config.initial_ms, entry.config.increment_ms)
+            key = (entry.config.rated, entry.config.clock_time, entry.config.incr)
             groups[key].append(entry)
 
         now = time.monotonic()

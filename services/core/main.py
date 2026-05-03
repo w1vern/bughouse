@@ -54,14 +54,14 @@ class CoreServiceServicer(core_pb2_grpc.CoreServiceServicer):
     async def CreateLobby(self, request: pb.CreateLobbyReq, context) -> pb.StatusResp:
         username = request.username
         logger.debug(
-            "CreateLobby request: username=%s init=%s incr=%s",
-            username, request.initial_ms, request.increment_ms,
+            "CreateLobby request: username=%s clock_time=%s incr=%s",
+            username, request.clock_time, request.incr,
         )
         if not username:
             return _err_raw("bad_request", "missing username")
         cfg = LobbyConfig(
-            initial_ms=request.initial_ms or 180_000,
-            increment_ms=request.increment_ms or 0,
+            clock_time=request.clock_time or 180_000,
+            incr=request.incr or 0,
             rated=False,
         )
         try:
@@ -101,14 +101,14 @@ class CoreServiceServicer(core_pb2_grpc.CoreServiceServicer):
     async def SetLobbyConfig(self, request: pb.SetConfigReq, context) -> pb.StatusResp:
         leader = request.leader
         logger.debug(
-            "SetLobbyConfig request: leader=%s init=%s incr=%s rated=%s",
-            leader, request.initial_ms, request.increment_ms, request.rated,
+            "SetLobbyConfig request: leader=%s clock_time=%s incr=%s rated=%s",
+            leader, request.clock_time, request.incr, request.rated,
         )
         if not leader:
             return _err_raw("bad_request", "missing leader")
         cfg = LobbyConfig(
-            initial_ms=request.initial_ms,
-            increment_ms=request.increment_ms,
+            clock_time=request.clock_time,
+            incr=request.incr,
             rated=request.rated,
         )
         try:

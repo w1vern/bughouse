@@ -13,8 +13,8 @@ class Seat:
 
 @dataclass(slots=True)
 class LobbyConfig:
-    initial_ms: int = 180_000
-    increment_ms: int = 2_000
+    clock_time: int = 180_000
+    incr: int = 2_000
     rated: bool = False
 
 

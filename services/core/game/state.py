@@ -58,9 +58,9 @@ def _board_data(
     fen = boards.fen(board_idx)
     pockets = boards.board_pockets(board_idx)
     if board_idx == 0:
-        white_clock, black_clock = clocks.b0w, clocks.b0b
+        white_clock_time, black_clock_time = clocks.b0w, clocks.b0b
     else:
-        white_clock, black_clock = clocks.b1w, clocks.b1b
+        white_clock_time, black_clock_time = clocks.b1w, clocks.b1b
     return BoardData(
         fen=fen,
         players=(
@@ -68,14 +68,14 @@ def _board_data(
                 name=white.username,
                 rating=white.rating,
                 color="white",
-                clock=white_clock,
+                clock_time=white_clock_time,
                 pocket=_pocket_payload(pockets["w"]),
             ),
             PlayerData(
                 name=black.username,
                 rating=black.rating,
                 color="black",
-                clock=black_clock,
+                clock_time=black_clock_time,
                 pocket=_pocket_payload(pockets["b"]),
             ),
         ),

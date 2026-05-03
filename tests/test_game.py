@@ -111,10 +111,10 @@ class FakeNotifier:
         usernames: list[str],
         idx: int,
         uci: str,
-        white_ms: int,
-        black_ms: int,
+        white_clock_time: int,
+        black_clock_time: int,
     ) -> None:
-        self.moves.append((list(usernames), idx, uci, white_ms, black_ms))
+        self.moves.append((list(usernames), idx, uci, white_clock_time, black_clock_time))
 
     async def publish_game_end(
         self,
@@ -229,7 +229,7 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
             self.manager._abort_timeout = abort_timeout
         return await self.manager.create_game(
             seats(),
-            config or LobbyConfig(initial_ms=60_000, increment_ms=1_000, rated=False),
+            config or LobbyConfig(clock_time=60_000, incr=1_000, rated=False),
         )
 
     async def test_create_game_loads_players_and_publishes_initial_state(self) -> None:
@@ -261,11 +261,11 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(game.is_turn_of("bob"))
         self.assertNotIn(game_id, self.manager._abort_tasks)
         self.assertEqual(len(self.notifier.moves), 1)
-        usernames, board_idx, uci, white_ms, black_ms = self.notifier.moves[0]
+        usernames, board_idx, uci, white_clock_time, black_clock_time = self.notifier.moves[0]
         self.assertEqual(usernames, list(PLAYER_NAMES))
         self.assertEqual((board_idx, uci), (0, "e2e4"))
-        self.assertGreater(white_ms, 60_000)
-        self.assertEqual(black_ms, 60_000)
+        self.assertGreater(white_clock_time, 60_000)
+        self.assertEqual(black_clock_time, 60_000)
 
     async def test_make_move_rejects_out_of_turn_and_illegal_moves(self) -> None:
         await self.create_game()
