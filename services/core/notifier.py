@@ -63,6 +63,14 @@ def lobby_data(lobby: Lobby) -> LobbyData:
     )
 
 
+def sync_for_lobby(lobby: Lobby) -> SyncData:
+    return SyncData(state="LOBBY", lobby=lobby_data(lobby), game=None)
+
+
+def sync_idle() -> SyncData:
+    return SyncData(state="IDLE", lobby=None, game=None)
+
+
 def lobby_config_payload(lobby: Lobby) -> LobbyTimeRatingData:
     return LobbyTimeRatingData(
         clock_time=lobby.config.clock_time,
@@ -259,6 +267,12 @@ class Notifier:
             data=GameEndData(status=status, rating_changes=rating_changes)
         )
         await self._fanout(usernames, msg)
+
+    async def publish_back_to_lobby(self, username: str, lobby: Lobby) -> None:
+        await self._send(username, SyncMsg(data=sync_for_lobby(lobby)))
+
+    async def publish_back_to_idle(self, username: str) -> None:
+        await self._send(username, SyncMsg(data=sync_idle()))
 
     # ------------- Direct -------------
 

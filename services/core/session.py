@@ -15,13 +15,13 @@ class UserSessionIndex:
 
     def get_sync(self, username: str) -> SyncData:
         game = self._games.get_game_by_user(username)
+        lobby = self._lobbies.get_by_user(username)
         if game is not None:
             return SyncData(
                 state="GAME",
-                lobby=None,
+                lobby=lobby_data(lobby) if lobby is not None else None,
                 game=build_bughouse(game),
             )
-        lobby = self._lobbies.get_by_user(username)
         if lobby is not None:
             return SyncData(
                 state="LOBBY",

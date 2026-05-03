@@ -24,9 +24,10 @@ UserRepoFactory = Callable[[], AbstractAsyncContextManager[UserRepository]]
 
 
 class _LobbyManagerProto(Protocol):
+    def get(self, lobby_id: UUID) -> Lobby | None: ...
     def mark_in_queue(self, lobby_id: UUID) -> None: ...
     def mark_idle(self, lobby_id: UUID) -> None: ...
-    async def dissolve(self, lobby_id: UUID) -> None: ...
+    def mark_in_game(self, lobby_id: UUID) -> None: ...
 
 
 class _GameManagerProto(Protocol):
@@ -34,6 +35,11 @@ class _GameManagerProto(Protocol):
         self,
         seats: tuple[Seat, Seat, Seat, Seat],
         config: LobbyConfig,
+        *,
+        color_flip: bool = False,
+        lobby_ids: tuple[UUID | None, UUID | None, UUID | None, UUID | None] = (
+            None, None, None, None,
+        ),
     ) -> UUID: ...
 
 
@@ -107,13 +113,9 @@ class QueueManager:
         if entry is None:
             raise QueueError.not_in_queue()
         self._lobby_mgr.mark_idle(lobby_id)
-        # the lobby still exists; resolve via lobby manager for fanout
-        from ..lobby.manager import LobbyManager  # avoid cyclic import at module load
-
-        if isinstance(self._lobby_mgr, LobbyManager):
-            lobby = self._lobby_mgr.get(lobby_id)
-            if lobby is not None:
-                await self._notifier.publish_queue_cancelled(lobby)
+        lobby = self._lobby_mgr.get(lobby_id)
+        if lobby is not None:
+            await self._notifier.publish_queue_cancelled(lobby)
 
     def start_loop(self) -> None:
         if self._task is not None and not self._task.done():
@@ -153,8 +155,8 @@ class QueueManager:
                 best = find_best_assignment(group, now, self._ranking)
                 if best is None:
                     break
-                entries_chosen, placement = best
-                await self._fire(entries_chosen, placement)
+                entries_chosen, placement, color_flip = best
+                await self._fire(entries_chosen, placement, color_flip)
                 for e in entries_chosen:
                     group.remove(e)
 
@@ -162,14 +164,20 @@ class QueueManager:
         self,
         entries: tuple[QueueEntry, ...],
         placement: Placement,
+        color_flip: bool,
     ) -> None:
         slot_seats: list[Seat | None] = [None, None, None, None]
-        for entry, slot_indices in zip(entries, placement):
-            positions = entry.positions
-            for entry_pos, slot_idx in zip(positions, slot_indices):
-                seat = entry.seats[entry_pos]
-                assert seat is not None
-                slot_seats[slot_idx] = seat
+        slot_lobby_ids: list[UUID | None] = [None, None, None, None]
+        for entry, mapping in zip(entries, placement):
+            for lobby_pos in range(4):
+                game_pos = mapping[lobby_pos]
+                if game_pos == -1:
+                    continue
+                seat = entry.seats[lobby_pos]
+                if seat is None:
+                    continue
+                slot_seats[game_pos] = seat
+                slot_lobby_ids[game_pos] = entry.lobby_id
 
         seats_tuple: tuple[Seat, Seat, Seat, Seat] = (
             slot_seats[0],  # type: ignore[assignment]
@@ -177,9 +185,22 @@ class QueueManager:
             slot_seats[2],  # type: ignore[assignment]
             slot_seats[3],  # type: ignore[assignment]
         )
+        lobby_ids_tuple: tuple[UUID | None, UUID | None, UUID | None, UUID | None] = (
+            slot_lobby_ids[0],
+            slot_lobby_ids[1],
+            slot_lobby_ids[2],
+            slot_lobby_ids[3],
+        )
+
         config = entries[0].config
-        await self._game_mgr.create_game(seats_tuple, config)
 
         for entry in entries:
             self._entries.pop(entry.lobby_id, None)
-            await self._lobby_mgr.dissolve(entry.lobby_id)
+            self._lobby_mgr.mark_in_game(entry.lobby_id)
+
+        await self._game_mgr.create_game(
+            seats_tuple,
+            config,
+            color_flip=color_flip,
+            lobby_ids=lobby_ids_tuple,
+        )

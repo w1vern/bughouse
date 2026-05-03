@@ -26,7 +26,55 @@ class EndReason(Enum):
     ABORT_NO_MOVES = "abort_no_moves"
 
 
-_PARTNER_POS = {0: 3, 3: 0, 1: 2, 2: 1}
+# Game-position layout (matches frontend lobby slot semantics):
+#   pos 0 — leader-equivalent
+#   pos 1 — leader's partner (same team)
+#   pos 2 — leader's same-board opponent
+#   pos 3 — partner's same-board opponent
+# Topology:
+#   Teammates : (0,1) and (2,3)
+#   Same-board: (0,2) and (1,3)  -> board index = pos % 2
+#   Color is independent of position; chosen at match composition via `color_flip`.
+#   Without flip: pos 0,3 → white; pos 1,2 → black.
+#   With flip:    pos 0,3 → black; pos 1,2 → white.
+
+_PARTNER_POS: dict[int, int] = {0: 1, 1: 0, 2: 3, 3: 2}
+_TEAM_OF_POS: dict[int, GameResult] = {
+    0: GameResult.TEAM_A,
+    1: GameResult.TEAM_A,
+    2: GameResult.TEAM_B,
+    3: GameResult.TEAM_B,
+}
+
+
+def pos_to_board(pos: int) -> int:
+    return pos % 2
+
+
+def pos_to_color(pos: int, color_flip: bool) -> chess.Color:
+    natural_white = pos in (0, 3)
+    if color_flip:
+        natural_white = not natural_white
+    return chess.WHITE if natural_white else chess.BLACK
+
+
+def pos_for(board_idx: int, color: chess.Color, color_flip: bool) -> int:
+    for pos in (0, 1, 2, 3):
+        if pos_to_board(pos) == board_idx and pos_to_color(pos, color_flip) == color:
+            return pos
+    raise ValueError(f"no position for board={board_idx}, color={color}")
+
+
+def team_of_pos(pos: int) -> GameResult:
+    return _TEAM_OF_POS[pos]
+
+
+def other_team(team: GameResult) -> GameResult:
+    if team == GameResult.TEAM_A:
+        return GameResult.TEAM_B
+    if team == GameResult.TEAM_B:
+        return GameResult.TEAM_A
+    return team
 
 
 @dataclass(slots=True)
@@ -34,6 +82,7 @@ class PlayerRef:
     username: str
     rating_before: float
     sigma_before: float
+    lobby_id: UUID | None = None
 
 
 @dataclass(slots=True)
@@ -52,6 +101,7 @@ class GameObj:
     boards: BughouseBoards
     clocks: Clocks
     config: LobbyConfig
+    color_flip: bool = False
     moves: list[MoveRecord] = field(default_factory=list)
     started_at: float = 0.0
     ended_at: float | None = None
@@ -70,16 +120,16 @@ class GameObj:
         raise KeyError(username)
 
     def board_of(self, username: str) -> int:
-        return self.pos_of(username) // 2
+        return pos_to_board(self.pos_of(username))
 
     def color_of(self, username: str) -> chess.Color:
-        return chess.WHITE if self.pos_of(username) % 2 == 0 else chess.BLACK
+        return pos_to_color(self.pos_of(username), self.color_flip)
 
     def partner_of(self, username: str) -> str:
         return self.players[_PARTNER_POS[self.pos_of(username)]].username
 
     def is_turn_of(self, username: str) -> bool:
         pos = self.pos_of(username)
-        board_idx = pos // 2
-        expected = chess.WHITE if pos % 2 == 0 else chess.BLACK
+        board_idx = pos_to_board(pos)
+        expected = pos_to_color(pos, self.color_flip)
         return self.boards.turn(board_idx) == expected

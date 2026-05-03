@@ -4,11 +4,12 @@ import asyncio
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import chess
 
 import services.core.game.manager as game_manager_module
+import services.core.game.models as game_models_module
 from services.core.game.board import BughouseBoards
 from services.core.game.errors import (
     ERR_ILLEGAL_MOVE,
@@ -16,13 +17,27 @@ from services.core.game.errors import (
     GameError,
 )
 from services.core.game.manager import GameManager
-from services.core.game.models import EndReason, GameObj, GameResult, PlayerRef
+from services.core.game.models import (
+    EndReason,
+    GameObj,
+    GameResult,
+    PlayerRef,
+    pos_for,
+    pos_to_board,
+    pos_to_color,
+    team_of_pos,
+)
 from services.core.lobby.models import LobbyConfig, Seat
 from services.core.session import UserSessionIndex
 from shared.events import BughouseData
 from shared.infrastructure import RankingParams
 
 
+# Position semantics (frontend layout):
+#   0 — leader, 1 — partner, 2 — leader's same-board opp, 3 — partner's same-board opp.
+#   Team A = (0, 1); Team B = (2, 3).
+#   Boards: pos % 2 (0,2 → board 0; 1,3 → board 1).
+#   Color: chosen at match time via `color_flip`. Without flip: pos 0,3 white, 1,2 black.
 PLAYER_NAMES = ("alice", "bob", "carol", "dave")
 
 
@@ -96,6 +111,8 @@ class FakeNotifier:
         self.game_starts: list[tuple[list[str], BughouseData]] = []
         self.moves: list[tuple[list[str], int, str, int, int]] = []
         self.game_ends: list[tuple[list[str], str, dict[str, float]]] = []
+        self.back_to_lobby: list[tuple[str, object]] = []
+        self.back_to_idle: list[str] = []
 
     async def mark_busy(self, username: str) -> None:
         self.busy.append(username)
@@ -128,6 +145,12 @@ class FakeNotifier:
     ) -> None:
         self.game_ends.append((list(usernames), status, rating_changes))
 
+    async def publish_back_to_lobby(self, username: str, lobby: object) -> None:
+        self.back_to_lobby.append((username, lobby))
+
+    async def publish_back_to_idle(self, username: str) -> None:
+        self.back_to_idle.append(username)
+
 
 def ranking_params() -> RankingParams:
     return RankingParams(
@@ -156,15 +179,48 @@ class GameObjTests(unittest.TestCase):
             config=LobbyConfig(),
         )
 
+        # alice=0 (leader, board0 white), bob=1 (partner, board1 black),
+        # carol=2 (leader's opp, board0 black), dave=3 (partner's opp, board1 white).
         self.assertEqual(game.usernames, list(PLAYER_NAMES))
         self.assertEqual(game.board_of("alice"), 0)
-        self.assertEqual(game.board_of("carol"), 1)
+        self.assertEqual(game.board_of("bob"), 1)
+        self.assertEqual(game.board_of("carol"), 0)
+        self.assertEqual(game.board_of("dave"), 1)
         self.assertEqual(game.color_of("alice"), chess.WHITE)
         self.assertEqual(game.color_of("bob"), chess.BLACK)
-        self.assertEqual(game.partner_of("alice"), "dave")
-        self.assertEqual(game.partner_of("bob"), "carol")
+        self.assertEqual(game.color_of("carol"), chess.BLACK)
+        self.assertEqual(game.color_of("dave"), chess.WHITE)
+        self.assertEqual(game.partner_of("alice"), "bob")
+        self.assertEqual(game.partner_of("bob"), "alice")
+        self.assertEqual(game.partner_of("carol"), "dave")
+        self.assertEqual(game.partner_of("dave"), "carol")
         self.assertTrue(game.is_turn_of("alice"))
         self.assertFalse(game.is_turn_of("bob"))
+        self.assertFalse(game.is_turn_of("carol"))
+        self.assertFalse(game.is_turn_of("dave"))
+
+
+class GameObjColorFlipTests(unittest.TestCase):
+    def test_color_flip_swaps_colors_per_position(self) -> None:
+        game = GameObj(
+            id=uuid4(),
+            players=tuple(
+                PlayerRef(username=name, rating_before=25.0, sigma_before=8.333)
+                for name in PLAYER_NAMES
+            ),  # type: ignore[arg-type]
+            boards=BughouseBoards(),
+            clocks=SimpleNamespace(),
+            config=LobbyConfig(),
+            color_flip=True,
+        )
+
+        self.assertEqual(game.color_of("alice"), chess.BLACK)
+        self.assertEqual(game.color_of("bob"), chess.WHITE)
+        self.assertEqual(game.color_of("carol"), chess.WHITE)
+        self.assertEqual(game.color_of("dave"), chess.BLACK)
+        # Boards are independent of color flip.
+        self.assertEqual(game.board_of("alice"), 0)
+        self.assertEqual(game.board_of("dave"), 1)
 
 
 class BughouseBoardsTests(unittest.TestCase):
@@ -228,12 +284,18 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         *,
         config: LobbyConfig | None = None,
         abort_timeout: float | None = None,
-    ) -> object:
+        color_flip: bool = False,
+        lobby_ids: tuple[UUID | None, UUID | None, UUID | None, UUID | None] = (
+            None, None, None, None,
+        ),
+    ) -> UUID:
         if abort_timeout is not None:
             self.manager._abort_timeout = abort_timeout
         return await self.manager.create_game(
             seats(),
             config or LobbyConfig(clock_time=60_000, incr=1_000, rated=False),
+            color_flip=color_flip,
+            lobby_ids=lobby_ids,
         )
 
     async def test_create_game_loads_players_and_publishes_initial_state(self) -> None:
@@ -245,8 +307,12 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.notifier.game_starts), 1)
         usernames, bughouse = self.notifier.game_starts[0]
         self.assertEqual(usernames, list(PLAYER_NAMES))
+        # Without color_flip: board 0 white = pos 0 (alice), black = pos 2 (carol).
+        # board 1 white = pos 3 (dave), black = pos 1 (bob).
         self.assertEqual(bughouse.boards[0].players[0].name, "alice")
-        self.assertEqual(bughouse.boards[1].players[1].name, "dave")
+        self.assertEqual(bughouse.boards[0].players[1].name, "carol")
+        self.assertEqual(bughouse.boards[1].players[0].name, "dave")
+        self.assertEqual(bughouse.boards[1].players[1].name, "bob")
         self.assertEqual(bughouse.incr, 1_000)
         self.assertIs(self.manager.get_game_by_user("carol"), game)
 
@@ -263,7 +329,9 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(record.uci, "e2e4")
         self.assertEqual(record.index, 0)
         self.assertFalse(game.is_turn_of("alice"))
-        self.assertTrue(game.is_turn_of("bob"))
+        # On board 0 it is now black's turn — that is carol (pos 2), not bob.
+        self.assertTrue(game.is_turn_of("carol"))
+        self.assertFalse(game.is_turn_of("bob"))
         self.assertNotIn(game_id, self.manager._abort_tasks)
         self.assertEqual(len(self.notifier.moves), 1)
         usernames, board_idx, uci, white_clock_time, black_clock_time = self.notifier.moves[0]
@@ -281,13 +349,14 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(game.clocks.snapshot()["b0w"], 60_000)
         self.assertEqual(game.clocks._active, {})
 
+        # Board 0: alice (white pos 0) and carol (black pos 2) play here.
         await self.manager.make_move("alice", "e2e4")
         await asyncio.sleep(0.02)
         self.assertEqual(game.clocks.snapshot()["b0w"], 60_000)
         self.assertEqual(game.clocks.snapshot()["b0b"], 60_000)
         self.assertEqual(game.clocks._active, {})
 
-        await self.manager.make_move("bob", "e7e5")
+        await self.manager.make_move("carol", "e7e5")
 
         active = game.clocks._active.get(0)
         self.assertIsNotNone(active)
@@ -303,6 +372,7 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
     async def test_make_move_rejects_out_of_turn_and_illegal_moves(self) -> None:
         await self.create_game()
 
+        # bob is on board 1 (black). Trying to move at game start (white-to-move on his board).
         with self.assertRaises(GameError) as turn_error:
             await self.manager.make_move("bob", "e7e5")
         self.assertEqual(turn_error.exception.code, ERR_NOT_YOUR_TURN)
@@ -315,17 +385,21 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
     async def test_checkmate_finishes_game_persists_moves_and_cleans_users(self) -> None:
         game_id = await self.create_game()
 
+        # Fool's mate on board 0: alice (white pos 0) vs carol (black pos 2).
         await self.manager.make_move("alice", "f2f3")
-        await self.manager.make_move("bob", "e7e5")
+        await self.manager.make_move("carol", "e7e5")
         await self.manager.make_move("alice", "g2g4")
-        await self.manager.make_move("bob", "d8h4")
+        await self.manager.make_move("carol", "d8h4")
 
         self.assertNotIn(game_id, self.manager._games)
         self.assertIsNone(self.manager.get_game_by_user("alice"))
+        # No lobby manager attached — players go to idle.
         self.assertEqual(self.notifier.idle, list(PLAYER_NAMES))
+        self.assertEqual(self.notifier.back_to_idle, list(PLAYER_NAMES))
         self.assertEqual(len(self.notifier.game_ends), 1)
         usernames, status, rating_changes = self.notifier.game_ends[0]
         self.assertEqual(usernames, list(PLAYER_NAMES))
+        # Carol (pos 2 → team B) checkmated alice (pos 0 → team A). Team B wins.
         self.assertEqual(status, "WinB")
         self.assertEqual(rating_changes, {name: 0.0 for name in PLAYER_NAMES})
 
@@ -340,21 +414,32 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
     async def test_resign_finishes_for_opposing_team(self) -> None:
         await self.create_game()
 
+        # dave is at pos 3 → team B. Resigning means team B loses → team A wins (WinA).
         await self.manager.resign("dave")
 
         self.assertEqual(len(self.notifier.game_ends), 1)
         _usernames, status, _rating_changes = self.notifier.game_ends[0]
-        self.assertEqual(status, "WinB")
-        self.assertEqual(self.session_factory.created_games[0]["result"], GameResult.TEAM_B.value)
+        self.assertEqual(status, "WinA")
+        self.assertEqual(self.session_factory.created_games[0]["result"], GameResult.TEAM_A.value)
 
     async def test_handle_flag_finishes_for_flagged_players_opponent_team(self) -> None:
         game_id = await self.create_game()
 
+        # board 1 black without color_flip → pos 1 (bob, team A). Team A flagged → WinB.
         await self.manager.handle_flag(game_id, 1, chess.BLACK)
 
         self.assertNotIn(game_id, self.manager._games)
         self.assertEqual(self.notifier.game_ends[0][1], "WinB")
         self.assertEqual(self.session_factory.created_games[0]["result"], GameResult.TEAM_B.value)
+
+    async def test_handle_flag_with_color_flip_inverts_color_to_pos_mapping(self) -> None:
+        game_id = await self.create_game(color_flip=True)
+
+        # With color_flip=True: board 1 black → pos 3 (dave, team B). Team B flagged → WinA.
+        await self.manager.handle_flag(game_id, 1, chess.BLACK)
+
+        self.assertEqual(self.notifier.game_ends[0][1], "WinA")
+        self.assertEqual(self.session_factory.created_games[0]["result"], GameResult.TEAM_A.value)
 
     async def test_abort_watchdog_finishes_game_without_moves(self) -> None:
         self.manager._abort_timeout = 10.0
@@ -389,23 +474,76 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(error.exception.code, "user_not_found")
         self.assertEqual(self.notifier.busy, [])
 
+    async def test_finish_returns_each_player_to_their_lobby(self) -> None:
+        # Stub a minimal lobby manager: maps usernames to lobby ids.
+        lobby_a, lobby_b = uuid4(), uuid4()
+        per_user_lobby = {
+            "alice": lobby_a,
+            "bob": lobby_a,
+            "carol": lobby_b,
+            "dave": lobby_b,
+        }
+        released: list[UUID] = []
+        sentinel_lobbies = {lobby_a: SimpleNamespace(id=lobby_a), lobby_b: SimpleNamespace(id=lobby_b)}
 
-class GameManagerPrivateMappingTests(unittest.TestCase):
-    def test_loser_team_mapping_matches_documented_team_layout(self) -> None:
-        self.assertEqual(game_manager_module._loser_team_from_pos(0), GameResult.TEAM_A)
-        self.assertEqual(game_manager_module._loser_team_from_pos(3), GameResult.TEAM_A)
-        self.assertEqual(game_manager_module._loser_team_from_pos(1), GameResult.TEAM_B)
-        self.assertEqual(game_manager_module._loser_team_from_pos(2), GameResult.TEAM_B)
+        class StubLobbyMgr:
+            def get_by_user(self, username: str) -> object | None:
+                lobby_id = per_user_lobby.get(username)
+                return sentinel_lobbies.get(lobby_id) if lobby_id else None
 
-    def test_position_to_board_and_color_mapping(self) -> None:
-        self.assertEqual(game_manager_module._pos_to_board(0), 0)
-        self.assertEqual(game_manager_module._pos_to_board(1), 0)
-        self.assertEqual(game_manager_module._pos_to_board(2), 1)
-        self.assertEqual(game_manager_module._pos_to_board(3), 1)
-        self.assertEqual(game_manager_module._pos_to_color(0), chess.WHITE)
-        self.assertEqual(game_manager_module._pos_to_color(1), chess.BLACK)
-        self.assertEqual(game_manager_module._pos_to_color(2), chess.WHITE)
-        self.assertEqual(game_manager_module._pos_to_color(3), chess.BLACK)
+            async def release_from_game(self, lobby_id: UUID) -> object | None:
+                released.append(lobby_id)
+                return sentinel_lobbies.get(lobby_id)
+
+        self.manager.attach_lobby_manager(StubLobbyMgr())  # type: ignore[arg-type]
+
+        await self.create_game(
+            lobby_ids=(lobby_a, lobby_a, lobby_b, lobby_b),
+        )
+        await self.manager.resign("alice")
+
+        # Each lobby is released exactly once.
+        self.assertEqual(sorted(released), sorted([lobby_a, lobby_b]))
+        # All four players received a back-to-lobby sync.
+        self.assertEqual(
+            sorted(name for name, _ in self.notifier.back_to_lobby),
+            list(PLAYER_NAMES),
+        )
+        # No idle marks because everyone is still in a lobby.
+        self.assertEqual(self.notifier.back_to_idle, [])
+
+
+class PositionMappingTests(unittest.TestCase):
+    def test_team_layout(self) -> None:
+        self.assertEqual(team_of_pos(0), GameResult.TEAM_A)
+        self.assertEqual(team_of_pos(1), GameResult.TEAM_A)
+        self.assertEqual(team_of_pos(2), GameResult.TEAM_B)
+        self.assertEqual(team_of_pos(3), GameResult.TEAM_B)
+
+    def test_board_layout(self) -> None:
+        self.assertEqual(pos_to_board(0), 0)
+        self.assertEqual(pos_to_board(1), 1)
+        self.assertEqual(pos_to_board(2), 0)
+        self.assertEqual(pos_to_board(3), 1)
+
+    def test_color_layout_no_flip(self) -> None:
+        self.assertEqual(pos_to_color(0, False), chess.WHITE)
+        self.assertEqual(pos_to_color(1, False), chess.BLACK)
+        self.assertEqual(pos_to_color(2, False), chess.BLACK)
+        self.assertEqual(pos_to_color(3, False), chess.WHITE)
+
+    def test_color_layout_with_flip(self) -> None:
+        self.assertEqual(pos_to_color(0, True), chess.BLACK)
+        self.assertEqual(pos_to_color(1, True), chess.WHITE)
+        self.assertEqual(pos_to_color(2, True), chess.WHITE)
+        self.assertEqual(pos_to_color(3, True), chess.BLACK)
+
+    def test_pos_for_round_trips_through_board_and_color(self) -> None:
+        for flip in (False, True):
+            for pos in (0, 1, 2, 3):
+                board = pos_to_board(pos)
+                color = pos_to_color(pos, flip)
+                self.assertEqual(pos_for(board, color, flip), pos)
 
 
 if __name__ == "__main__":

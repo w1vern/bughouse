@@ -4,6 +4,7 @@ import asyncio
 import time
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
+from typing import Protocol
 from uuid import UUID, uuid4
 
 import chess
@@ -13,12 +14,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.database import GameRepository, User, UserRepository
 from shared.infrastructure import RankingParams, setup_logger
 
-from ..lobby.models import LobbyConfig, Seat
+from ..lobby.models import Lobby, LobbyConfig, Seat
 from ..notifier import Notifier, result_status
 from .board import BughouseBoards
 from .clocks import Clocks, FlagCallback
 from .errors import GameError
-from .models import EndReason, GameObj, GameResult, MoveRecord, PlayerRef
+from .models import (
+    EndReason,
+    GameObj,
+    GameResult,
+    MoveRecord,
+    PlayerRef,
+    other_team,
+    pos_for,
+    pos_to_board,
+    pos_to_color,
+    team_of_pos,
+)
 from .state import build_bughouse
 
 logger = setup_logger(__name__)
@@ -26,23 +38,13 @@ logger = setup_logger(__name__)
 SessionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
 
 
-def _pos_to_board(pos: int) -> int:
-    return pos // 2
-
-
-def _pos_to_color(pos: int) -> chess.Color:
-    return chess.WHITE if pos % 2 == 0 else chess.BLACK
+class _LobbyManagerProto(Protocol):
+    def get_by_user(self, username: str) -> Lobby | None: ...
+    async def release_from_game(self, lobby_id: UUID) -> Lobby | None: ...
 
 
 def _board_move_count(game: GameObj, board_idx: int) -> int:
     return sum(1 for move in game.moves if move.board == board_idx)
-
-
-def _loser_team_from_pos(pos: int) -> GameResult:
-    # team A = positions 0 and 3; team B = positions 1 and 2
-    if pos in (0, 3):
-        return GameResult.TEAM_A
-    return GameResult.TEAM_B
 
 
 class GameManager:
@@ -52,6 +54,7 @@ class GameManager:
         session_factory: SessionFactory,
         ranking: RankingParams,
         abort_timeout: float,
+        lobby_mgr: _LobbyManagerProto | None = None,
     ) -> None:
         self._games: dict[UUID, GameObj] = {}
         self._user_to_game: dict[str, UUID] = {}
@@ -60,6 +63,7 @@ class GameManager:
         self._ranking = ranking
         self._abort_timeout = abort_timeout
         self._abort_tasks: dict[UUID, asyncio.Task[None]] = {}
+        self._lobby_mgr: _LobbyManagerProto | None = lobby_mgr
         self._ts = trueskill.TrueSkill(
             mu=ranking.mu,
             sigma=ranking.sigma,
@@ -67,6 +71,9 @@ class GameManager:
             tau=ranking.tau,
             draw_probability=0.0,
         )
+
+    def attach_lobby_manager(self, lobby_mgr: _LobbyManagerProto) -> None:
+        self._lobby_mgr = lobby_mgr
 
     def get_game_by_user(self, username: str) -> GameObj | None:
         game_id = self._user_to_game.get(username)
@@ -78,11 +85,16 @@ class GameManager:
         self,
         seats: tuple[Seat, Seat, Seat, Seat],
         config: LobbyConfig,
+        *,
+        color_flip: bool = False,
+        lobby_ids: tuple[UUID | None, UUID | None, UUID | None, UUID | None] = (
+            None, None, None, None,
+        ),
     ) -> UUID:
         async with self._session_factory() as session:
             user_repo = UserRepository(session)
             players_list: list[PlayerRef] = []
-            for seat in seats:
+            for seat, lobby_id in zip(seats, lobby_ids):
                 user = await user_repo.get_by_username(seat.username)
                 if user is None:
                     raise GameError("user_not_found", f"user {seat.username}")
@@ -91,6 +103,7 @@ class GameManager:
                         username=user.username,
                         rating_before=user.rating,
                         sigma_before=user.sigma,
+                        lobby_id=lobby_id,
                     )
                 )
 
@@ -107,6 +120,7 @@ class GameManager:
             boards=BughouseBoards(),
             clocks=Clocks(config.clock_time),
             config=config,
+            color_flip=color_flip,
             started_at=time.monotonic(),
         )
         self._games[game.id] = game
@@ -136,8 +150,8 @@ class GameManager:
             pos = game.pos_of(username)
         except KeyError as exc:
             raise GameError.not_in_this_game() from exc
-        board_idx = _pos_to_board(pos)
-        expected_color = _pos_to_color(pos)
+        board_idx = pos_to_board(pos)
+        expected_color = pos_to_color(pos, game.color_flip)
         if game.boards.turn(board_idx) != expected_color:
             raise GameError.not_your_turn()
 
@@ -167,11 +181,9 @@ class GameManager:
 
         if game.boards.is_checkmate(board_idx):
             loser_color = game.boards.turn(board_idx)
-            loser_pos = self._pos_for(board_idx, loser_color)
-            loser_team = _loser_team_from_pos(loser_pos)
-            winner = (
-                GameResult.TEAM_B if loser_team == GameResult.TEAM_A else GameResult.TEAM_A
-            )
+            loser_pos = pos_for(board_idx, loser_color, game.color_flip)
+            loser_team = team_of_pos(loser_pos)
+            winner = other_team(loser_team)
             await self._publish_move(game, board_idx, uci, exclude=username)
             await self._finish(game, winner, EndReason.CHECKMATE)
             return
@@ -197,10 +209,8 @@ class GameManager:
             pos = game.pos_of(username)
         except KeyError as exc:
             raise GameError.not_in_this_game() from exc
-        loser_team = _loser_team_from_pos(pos)
-        winner = (
-            GameResult.TEAM_B if loser_team == GameResult.TEAM_A else GameResult.TEAM_A
-        )
+        loser_team = team_of_pos(pos)
+        winner = other_team(loser_team)
         await self._finish(game, winner, EndReason.RESIGN)
 
     async def handle_flag(
@@ -212,11 +222,9 @@ class GameManager:
         game = self._games.get(game_id)
         if game is None or game.finished:
             return
-        flagged_pos = self._pos_for(board_idx, color)
-        loser_team = _loser_team_from_pos(flagged_pos)
-        winner = (
-            GameResult.TEAM_B if loser_team == GameResult.TEAM_A else GameResult.TEAM_A
-        )
+        flagged_pos = pos_for(board_idx, color, game.color_flip)
+        loser_team = team_of_pos(flagged_pos)
+        winner = other_team(loser_team)
         await self._finish(game, winner, EndReason.TIMEOUT)
 
     # ---------------- Internals ----------------
@@ -248,10 +256,6 @@ class GameManager:
             await self.handle_flag(game_id, board_idx, color)
 
         return cb
-
-    def _pos_for(self, board_idx: int, color: chess.Color) -> int:
-        color_idx = 0 if color == chess.WHITE else 1
-        return board_idx * 2 + color_idx
 
     async def _abort_watchdog(self, game_id: UUID) -> None:
         try:
@@ -289,9 +293,6 @@ class GameManager:
         try:
             await game.clocks.shutdown()
 
-            for p in game.players:
-                await self._notifier.mark_idle_if_online(p.username)
-
             diffs = (0.0, 0.0, 0.0, 0.0)
             try:
                 diffs = await self._persist(game, result)
@@ -304,8 +305,29 @@ class GameManager:
             await self._notifier.publish_game_end(
                 game.usernames, result_status(result), rating_changes
             )
+
+            await self._return_to_lobbies(game)
         finally:
             self._detach_game(game)
+
+    async def _return_to_lobbies(self, game: GameObj) -> None:
+        """Send each player back to their pre-game lobby (if any), or mark idle."""
+        lobby_mgr = self._lobby_mgr
+        released: dict[UUID, Lobby | None] = {}
+        for p in game.players:
+            lobby_id = p.lobby_id
+            if lobby_mgr is None or lobby_id is None:
+                await self._notifier.mark_idle_if_online(p.username)
+                await self._notifier.publish_back_to_idle(p.username)
+                continue
+            if lobby_id not in released:
+                released[lobby_id] = await lobby_mgr.release_from_game(lobby_id)
+            lobby = released[lobby_id]
+            if lobby is None:
+                await self._notifier.mark_idle_if_online(p.username)
+                await self._notifier.publish_back_to_idle(p.username)
+                continue
+            await self._notifier.publish_back_to_lobby(p.username, lobby)
 
     def _detach_game(self, game: GameObj) -> None:
         self._games.pop(game.id, None)
@@ -330,18 +352,19 @@ class GameManager:
                 users.append(u)
 
             for pos, user in enumerate(users):
-                user.color += 1 if _pos_to_color(pos) == chess.WHITE else -1
+                user.color += 1 if pos_to_color(pos, game.color_flip) == chess.WHITE else -1
 
             diffs: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
             if game.config.rated and result != GameResult.ABORT:
                 old_mus = [u.rating for u in users]
+                # Team A = positions (0, 1); Team B = positions (2, 3).
                 team_a = (
                     self._ts.create_rating(users[0].rating, users[0].sigma),
-                    self._ts.create_rating(users[3].rating, users[3].sigma),
+                    self._ts.create_rating(users[1].rating, users[1].sigma),
                 )
                 team_b = (
-                    self._ts.create_rating(users[1].rating, users[1].sigma),
                     self._ts.create_rating(users[2].rating, users[2].sigma),
+                    self._ts.create_rating(users[3].rating, users[3].sigma),
                 )
                 if result == GameResult.TEAM_A:
                     ranks = [0, 1]
@@ -352,12 +375,12 @@ class GameManager:
                 new_a, new_b = self._ts.rate([team_a, team_b], ranks=ranks)
                 users[0].rating = new_a[0].mu
                 users[0].sigma = new_a[0].sigma
-                users[3].rating = new_a[1].mu
-                users[3].sigma = new_a[1].sigma
-                users[1].rating = new_b[0].mu
-                users[1].sigma = new_b[0].sigma
-                users[2].rating = new_b[1].mu
-                users[2].sigma = new_b[1].sigma
+                users[1].rating = new_a[1].mu
+                users[1].sigma = new_a[1].sigma
+                users[2].rating = new_b[0].mu
+                users[2].sigma = new_b[0].sigma
+                users[3].rating = new_b[1].mu
+                users[3].sigma = new_b[1].sigma
                 diffs = (
                     users[0].rating - old_mus[0],
                     users[1].rating - old_mus[1],

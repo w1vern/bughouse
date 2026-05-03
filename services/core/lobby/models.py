@@ -21,6 +21,7 @@ class LobbyConfig:
 class LobbyState(Enum):
     IDLE = "idle"
     IN_QUEUE = "in_queue"
+    IN_GAME = "in_game"
 
 
 @dataclass(slots=True)

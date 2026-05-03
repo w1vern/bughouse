@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import chess
+
 from shared.events import (
     BoardData,
     BughouseData,
@@ -10,9 +12,9 @@ from shared.events import (
     PocketData,
 )
 
-from ..notifier import clocks_payload, now, result_status
+from ..notifier import clocks_payload, result_status
 from .board import BughouseBoards, PocketDict
-from .models import GameObj
+from .models import GameObj, pos_for
 
 
 _PIECE_LETTER_TO_NAME = {
@@ -39,7 +41,6 @@ def _last_move_to_squares(uci: str | None) -> tuple[str, str] | tuple[str] | Non
     if uci is None:
         return None
     if "@" in uci:
-        # drop move "P@e4" → ("e4",)
         return (uci.split("@", 1)[1],)
     a = uci[:2]
     b = uci[2:4]
@@ -85,14 +86,18 @@ def _board_data(
 
 def build_bughouse(game: GameObj) -> BughouseData:
     clocks = clocks_payload(game.clocks.snapshot())
-    refs = [
-        _PlayerView(p.username, p.rating_before) for p in game.players
-    ]
-    board0 = _board_data(game.boards, 0, refs[0], refs[1], clocks)
-    board1 = _board_data(game.boards, 1, refs[2], refs[3], clocks)
+    refs = [_PlayerView(p.username, p.rating_before) for p in game.players]
+
+    b0_white = refs[pos_for(0, chess.WHITE, game.color_flip)]
+    b0_black = refs[pos_for(0, chess.BLACK, game.color_flip)]
+    b1_white = refs[pos_for(1, chess.WHITE, game.color_flip)]
+    b1_black = refs[pos_for(1, chess.BLACK, game.color_flip)]
+
+    board0 = _board_data(game.boards, 0, b0_white, b0_black, clocks)
+    board1 = _board_data(game.boards, 1, b1_white, b1_black, clocks)
     status = result_status(game.result) if game.result is not None else None
     return BughouseData(
         boards=(board0, board1),
         incr=game.config.incr,
-        status=status
+        status=status,
     )

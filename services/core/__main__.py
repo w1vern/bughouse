@@ -44,6 +44,7 @@ async def main() -> None:
         session_factory=session_manager.context_session,
         ranking=env_config.ranking,
         abort_timeout=Config.abort_timeout,
+        lobby_mgr=lobby_mgr,
     )
     queue_mgr = QueueManager(
         lobby_mgr=lobby_mgr,

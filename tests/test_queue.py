@@ -117,7 +117,14 @@ class FakeLobbyManager:
     def __init__(self) -> None:
         self.in_queue: list[UUID] = []
         self.idle: list[UUID] = []
-        self.dissolved: list[UUID] = []
+        self.in_game: list[UUID] = []
+        self._lobbies: dict[UUID, Lobby] = {}
+
+    def register(self, lobby: Lobby) -> None:
+        self._lobbies[lobby.id] = lobby
+
+    def get(self, lobby_id: UUID) -> Lobby | None:
+        return self._lobbies.get(lobby_id)
 
     def mark_in_queue(self, lobby_id: UUID) -> None:
         self.in_queue.append(lobby_id)
@@ -125,20 +132,32 @@ class FakeLobbyManager:
     def mark_idle(self, lobby_id: UUID) -> None:
         self.idle.append(lobby_id)
 
-    async def dissolve(self, lobby_id: UUID) -> None:
-        self.dissolved.append(lobby_id)
+    def mark_in_game(self, lobby_id: UUID) -> None:
+        self.in_game.append(lobby_id)
 
 
 class FakeGameManager:
     def __init__(self) -> None:
-        self.created: list[tuple[tuple[Seat, Seat, Seat, Seat], LobbyConfig]] = []
+        self.created: list[
+            tuple[
+                tuple[Seat, Seat, Seat, Seat],
+                LobbyConfig,
+                bool,
+                tuple[UUID | None, UUID | None, UUID | None, UUID | None],
+            ]
+        ] = []
 
     async def create_game(
         self,
         seats: tuple[Seat, Seat, Seat, Seat],
         config: LobbyConfig,
+        *,
+        color_flip: bool = False,
+        lobby_ids: tuple[UUID | None, UUID | None, UUID | None, UUID | None] = (
+            None, None, None, None,
+        ),
     ) -> UUID:
-        self.created.append((seats, config))
+        self.created.append((seats, config, color_flip, lobby_ids))
         return uuid4()
 
 
@@ -162,6 +181,10 @@ class FakeNotifier:
         self.idle.append(username)
 
 
+def _placement_game_positions(placement: tuple[tuple[int, int, int, int], ...]) -> list[int]:
+    return sorted(p for mapping in placement for p in mapping if p != -1)
+
+
 class QueueEntryTests(unittest.TestCase):
     def test_positions_returns_only_occupied_lobby_slots(self) -> None:
         entry = make_entry(["alice", None, "carol", None])
@@ -170,13 +193,15 @@ class QueueEntryTests(unittest.TestCase):
 
 
 class QueueRankerTests(unittest.TestCase):
-    def test_compose_teams_uses_bughouse_team_layout(self) -> None:
+    def test_compose_teams_uses_new_team_layout(self) -> None:
         slots = tuple(Seat(username=name, rating=25.0) for name in ("a", "b", "c", "d"))
 
         team_a, team_b = compose_teams(slots)  # type: ignore[arg-type]
 
-        self.assertEqual([seat.username for seat in team_a], ["a", "d"])
-        self.assertEqual([seat.username for seat in team_b], ["b", "c"])
+        # Team A = (slot 0, slot 1) = leader + partner.
+        # Team B = (slot 2, slot 3) = leader's opp + partner's opp.
+        self.assertEqual([seat.username for seat in team_a], ["a", "b"])
+        self.assertEqual([seat.username for seat in team_b], ["c", "d"])
 
     def test_find_best_assignment_returns_none_until_four_players_are_available(self) -> None:
         entry = make_entry(["alice", None, None, None])
@@ -184,16 +209,35 @@ class QueueRankerTests(unittest.TestCase):
         self.assertIsNone(find_best_assignment([entry], now=10.0, params=ranking_params()))
 
     def test_find_best_assignment_can_fill_game_from_two_pairs(self) -> None:
-        first = make_entry(["alice", "bob", None, None])
-        second = make_entry([None, None, "carol", "dave"])
+        first = make_entry(["alice", "bob", None, None])    # teammates
+        second = make_entry([None, None, "carol", "dave"])  # teammates
 
         result = find_best_assignment([first, second], now=10.0, params=ranking_params())
 
         self.assertIsNotNone(result)
-        entries, placement = result
+        entries, placement, _color_flip = result
         self.assertEqual(entries, (first, second))
-        self.assertEqual(tuple(len(slots) for slots in placement), (2, 2))
-        self.assertEqual(sorted(slot for slots in placement for slot in slots), [0, 1, 2, 3])
+        self.assertEqual(_placement_game_positions(placement), [0, 1, 2, 3])
+        # First entry (lobby slots 0,1 = teammates) must occupy a teammate pair in game.
+        first_positions = sorted(p for p in placement[0] if p != -1)
+        self.assertIn(first_positions, ([0, 1], [2, 3]))
+        # Second entry (slots 2,3) must occupy the other teammate pair.
+        second_positions = sorted(p for p in placement[1] if p != -1)
+        self.assertIn(second_positions, ([0, 1], [2, 3]))
+        self.assertNotEqual(first_positions, second_positions)
+
+    def test_find_best_assignment_preserves_opponent_topology_for_cross_team_pair(self) -> None:
+        # Two players in lobby slots (0, 2) — leader + leader's same-board opp.
+        first = make_entry(["alice", None, "bob", None])
+        second = make_entry([None, "carol", None, "dave"])
+
+        result = find_best_assignment([first, second], now=10.0, params=ranking_params())
+
+        self.assertIsNotNone(result)
+        _entries, placement, _flip = result
+        first_pair = sorted(p for p in placement[0] if p != -1)
+        # Same-board-opp pairs in game: (0,2) and (1,3).
+        self.assertIn(first_pair, ([0, 2], [1, 3]))
 
     def test_find_best_assignment_allows_three_plus_one_only_for_unrated_games(self) -> None:
         unrated_cfg = LobbyConfig(rated=False)
@@ -308,12 +352,14 @@ class QueueManagerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_cancel_removes_entry_and_marks_lobby_idle(self) -> None:
         lobby = make_lobby(["alice", None, None, None])
+        self.lobby_mgr.register(lobby)
         await self.manager.enqueue(lobby)
 
         await self.manager.cancel(lobby.id)
 
         self.assertIsNone(self.manager.get(lobby.id))
         self.assertEqual(self.lobby_mgr.idle, [lobby.id])
+        self.assertEqual(self.notifier.cancelled, [lobby.id])
 
     async def test_cancel_rejects_lobby_that_is_not_queued(self) -> None:
         with self.assertRaises(QueueError) as error:
@@ -346,7 +392,7 @@ class QueueManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.notifier.cancelled, [lobby.id])
         self.assertEqual(lobby.state, LobbyState.IDLE)
 
-    async def test_tick_creates_game_and_dissolves_matched_lobbies(self) -> None:
+    async def test_tick_creates_game_and_marks_lobbies_in_game(self) -> None:
         lobbies = [
             make_lobby([name, None, None, None])
             for name in ("alice", "bob", "carol", "dave")
@@ -356,11 +402,17 @@ class QueueManagerTests(unittest.IsolatedAsyncioTestCase):
 
         await self.manager._do_tick()
 
+        # Lobbies are no longer in the queue but they survived (in-game).
         self.assertEqual([self.manager.get(lobby.id) for lobby in lobbies], [None] * 4)
-        self.assertEqual(self.lobby_mgr.dissolved, [lobby.id for lobby in lobbies])
+        self.assertEqual(
+            sorted(self.lobby_mgr.in_game),
+            sorted(lobby.id for lobby in lobbies),
+        )
         self.assertEqual(len(self.game_mgr.created), 1)
-        seats, config = self.game_mgr.created[0]
-        self.assertEqual([seat.username for seat in seats], ["alice", "bob", "carol", "dave"])
+        seats, config, _color_flip, lobby_ids = self.game_mgr.created[0]
+        self.assertEqual(sorted(seat.username for seat in seats), list(PLAYER_NAMES_SORTED))
+        # Each game position remembers which lobby it came from.
+        self.assertEqual(set(lobby_ids), {lobby.id for lobby in lobbies})
         self.assertIs(config, lobbies[0].config)
 
     async def test_tick_does_not_match_lobbies_with_different_configs(self) -> None:
@@ -386,6 +438,9 @@ class QueueManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(self.manager._task, first_task)
         await self.manager.stop_loop()
         self.assertIsNone(self.manager._task)
+
+
+PLAYER_NAMES_SORTED = sorted(("alice", "bob", "carol", "dave"))
 
 
 if __name__ == "__main__":

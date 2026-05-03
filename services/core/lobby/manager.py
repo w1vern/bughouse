@@ -154,6 +154,21 @@ class LobbyManager:
         lobby = self._require_lobby(lobby_id)
         lobby.state = LobbyState.IDLE
 
+    def mark_in_game(self, lobby_id: UUID) -> None:
+        lobby = self._require_lobby(lobby_id)
+        lobby.state = LobbyState.IN_GAME
+
+    async def release_from_game(self, lobby_id: UUID) -> Lobby | None:
+        """Called by GameManager when the game ends.
+        Transitions lobby back to IDLE so it can be queued/edited again.
+        Returns the lobby (still alive) or None if it no longer exists.
+        """
+        lobby = self._lobbies.get(lobby_id)
+        if lobby is None:
+            return None
+        lobby.state = LobbyState.IDLE
+        return lobby
+
     async def dissolve(self, lobby_id: UUID) -> None:
         lobby = self._lobbies.pop(lobby_id, None)
         if lobby is None:
@@ -171,7 +186,7 @@ class LobbyManager:
         return lobby
 
     def _ensure_mutable(self, lobby: Lobby) -> None:
-        if lobby.state == LobbyState.IN_QUEUE:
+        if lobby.state != LobbyState.IDLE:
             raise LobbyError.cannot_modify_while_in_queue()
 
     def _ensure_leader(self, lobby: Lobby, username: str) -> None:
