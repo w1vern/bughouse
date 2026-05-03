@@ -34,6 +34,10 @@ def _pos_to_color(pos: int) -> chess.Color:
     return chess.WHITE if pos % 2 == 0 else chess.BLACK
 
 
+def _board_move_count(game: GameObj, board_idx: int) -> int:
+    return sum(1 for move in game.moves if move.board == board_idx)
+
+
 def _loser_team_from_pos(pos: int) -> GameResult:
     # team A = positions 0 and 3; team B = positions 1 and 2
     if pos in (0, 3):
@@ -110,10 +114,6 @@ class GameManager:
             self._user_to_game[p.username] = game.id
             await self._notifier.mark_busy(p.username)
 
-        flag_cb = self._make_flag_cb(game.id)
-        await game.clocks.start(0, chess.WHITE, flag_cb)
-        await game.clocks.start(1, chess.WHITE, flag_cb)
-
         await self._notifier.publish_game_start(game.usernames, build_bughouse(game))
 
         self._abort_tasks[game.id] = asyncio.create_task(
@@ -141,12 +141,16 @@ class GameManager:
         if game.boards.turn(board_idx) != expected_color:
             raise GameError.not_your_turn()
 
+        board_moves_before = _board_move_count(game, board_idx)
+
         try:
             game.boards.push(board_idx, uci)
         except (chess.IllegalMoveError, chess.InvalidMoveError, ValueError) as exc:
             raise GameError.illegal_move(str(exc)) from exc
 
-        spent = await game.clocks.stop_and_apply(board_idx, game.config.incr)
+        spent = 0
+        if board_moves_before >= 2:
+            spent = await game.clocks.stop_and_apply(board_idx, game.config.incr)
         game.moves.append(
             MoveRecord(
                 board=board_idx,
@@ -178,7 +182,8 @@ class GameManager:
             return
 
         next_color = game.boards.turn(board_idx)
-        await game.clocks.start(board_idx, next_color, self._make_flag_cb(game.id))
+        if board_moves_before >= 1:
+            await game.clocks.start(board_idx, next_color, self._make_flag_cb(game.id))
 
         await self._publish_move(game, board_idx, uci, exclude=username)
 

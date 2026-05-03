@@ -19,6 +19,7 @@ from services.core.game.manager import GameManager
 from services.core.game.models import EndReason, GameObj, GameResult, PlayerRef
 from services.core.lobby.models import LobbyConfig, Seat
 from services.core.session import UserSessionIndex
+from shared.events import BughouseData
 from shared.infrastructure import RankingParams
 
 
@@ -92,7 +93,7 @@ class FakeNotifier:
     def __init__(self) -> None:
         self.busy: list[str] = []
         self.idle: list[str] = []
-        self.game_starts: list[tuple[list[str], object]] = []
+        self.game_starts: list[tuple[list[str], BughouseData]] = []
         self.moves: list[tuple[list[str], int, str, int, int]] = []
         self.game_ends: list[tuple[list[str], str, dict[str, float]]] = []
 
@@ -103,7 +104,7 @@ class FakeNotifier:
         await asyncio.sleep(0)
         self.idle.append(username)
 
-    async def publish_game_start(self, usernames: list[str], bughouse: object) -> None:
+    async def publish_game_start(self, usernames: list[str], bughouse: BughouseData) -> None:
         self.game_starts.append((list(usernames), bughouse))
 
     async def publish_move(
@@ -246,6 +247,7 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(usernames, list(PLAYER_NAMES))
         self.assertEqual(bughouse.boards[0].players[0].name, "alice")
         self.assertEqual(bughouse.boards[1].players[1].name, "dave")
+        self.assertEqual(bughouse.incr, 1_000)
         self.assertIs(self.manager.get_game_by_user("carol"), game)
 
     async def test_make_move_records_move_publishes_to_other_players_and_advances_turn(self) -> None:
@@ -267,8 +269,36 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         usernames, board_idx, uci, white_clock_time, black_clock_time = self.notifier.moves[0]
         self.assertEqual(usernames, ["bob", "carol", "dave"])
         self.assertEqual((board_idx, uci), (0, "e2e4"))
-        self.assertGreater(white_clock_time, 60_000)
+        self.assertEqual(white_clock_time, 60_000)
         self.assertEqual(black_clock_time, 60_000)
+        self.assertEqual(game.clocks._active, {})
+
+    async def test_clock_starts_after_both_players_made_first_board_moves(self) -> None:
+        game_id = await self.create_game()
+        game = self.manager._games[game_id]
+
+        await asyncio.sleep(0.02)
+        self.assertEqual(game.clocks.snapshot()["b0w"], 60_000)
+        self.assertEqual(game.clocks._active, {})
+
+        await self.manager.make_move("alice", "e2e4")
+        await asyncio.sleep(0.02)
+        self.assertEqual(game.clocks.snapshot()["b0w"], 60_000)
+        self.assertEqual(game.clocks.snapshot()["b0b"], 60_000)
+        self.assertEqual(game.clocks._active, {})
+
+        await self.manager.make_move("bob", "e7e5")
+
+        active = game.clocks._active.get(0)
+        self.assertIsNotNone(active)
+        assert active is not None
+        self.assertEqual(active[0], chess.WHITE)
+
+        await asyncio.sleep(0.02)
+        snap = game.clocks.snapshot()
+        self.assertLess(snap["b0w"], 60_000)
+        self.assertEqual(snap["b0b"], 60_000)
+        self.assertEqual(snap["b1w"], 60_000)
 
     async def test_make_move_rejects_out_of_turn_and_illegal_moves(self) -> None:
         await self.create_game()

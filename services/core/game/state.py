@@ -93,6 +93,6 @@ def build_bughouse(game: GameObj) -> BughouseData:
     status = result_status(game.result) if game.result is not None else None
     return BughouseData(
         boards=(board0, board1),
-        status=status,
-        timestamp=now(),
+        incr=game.config.incr,
+        status=status
     )

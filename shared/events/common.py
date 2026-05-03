@@ -148,7 +148,6 @@ class BughouseData(CamelModel):
     boards: tuple[BoardData, BoardData]
     incr: int = Field(ge=0)
     status: GameStatus | None = None
-    timestamp: int
 
 
 class GameMoveData(CamelModel):
