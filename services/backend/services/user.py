@@ -14,7 +14,7 @@ from ..exceptions import (
     UserNotFoundException
 )
 from ..redis import RedisType
-from ..schemas import EditUserSchema, UserSchema
+from ..schemas import EditUserSchema, UserSchema, UserTokenSchema
 
 logger = setup_logger(__name__)
 
@@ -22,7 +22,7 @@ logger = setup_logger(__name__)
 class UserService:
     def __init__(
         self,
-        user_schema: UserSchema,
+        user_schema: UserTokenSchema,
         ur: UserRepository
     ) -> None:
         self.ur = ur
@@ -31,7 +31,7 @@ class UserService:
     @classmethod
     def depends(
         cls,
-        user_schema: UserSchema = Depends(get_user),
+        user_schema: UserTokenSchema = Depends(get_user),
         ur: UserRepository = Depends(get_user_repo)
     ) -> 'UserService':
         return UserService(user_schema=user_schema, ur=ur)
@@ -48,8 +48,10 @@ class UserService:
     async def me(
         self
     ) -> UserSchema:
-        logger.debug("test print")
-        return self.user_schema
+        user = await self.ur.get_by_id(self.user_schema.id)
+        if user is None:
+            raise UserNotFoundException()
+        return UserSchema.from_db(user)
 
     async def update_user(
         self,

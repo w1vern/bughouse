@@ -12,17 +12,17 @@ from ..exceptions import (
 from ..schemas import (
     EditRankingParamSchema,
     RankingParamSchema,
-    UserSchema
+    UserTokenSchema
 )
 
 
 class RankingParamService():
     def __init__(
         self,
-        user_schema: UserSchema,
+        user_schema: UserTokenSchema,
         rpr: RankingParamRepository
     ) -> None:
-        if user_schema.email != env_config.superuser.email:
+        if user_schema.username != env_config.superuser.username:
             raise PermissionDeniedException()
         self.rpr = rpr
         self.user_schema = user_schema
@@ -30,7 +30,7 @@ class RankingParamService():
     @classmethod
     async def depends(
         cls,
-        user_schema: UserSchema = Depends(get_user),
+        user_schema: UserTokenSchema = Depends(get_user),
         rpr: RankingParamRepository = Depends(get_ranking_param_repo)
     ) -> 'RankingParamService':
         return RankingParamService(user_schema, rpr)
@@ -41,9 +41,9 @@ class RankingParamService():
         return RankingParamSchema.from_db_list(await self.rpr.get_all())
 
     async def edit(
-            self,
-            name: str,
-            ranking_param_schema: EditRankingParamSchema
+        self,
+        name: str,
+        ranking_param_schema: EditRankingParamSchema
     ) -> None:
         param = await self.rpr.get_by_name(name)
         if param is None:

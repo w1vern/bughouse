@@ -8,13 +8,13 @@ from shared.database import GameRepository, UserRepository
 
 from ..depends import get_game_repo, get_user, get_user_repo
 from ..exceptions import GameNotFoundException
-from ..schemas import GameSchema, UserSchema
+from ..schemas import GameSchema, UserTokenSchema
 
 
 class GameService:
     def __init__(
         self,
-        user_schema: UserSchema,
+        user_schema: UserTokenSchema,
         ur: UserRepository,
         gr: GameRepository
     ) -> None:
@@ -25,7 +25,7 @@ class GameService:
     @classmethod
     def depends(
         cls,
-        user_schema: UserSchema = Depends(get_user),
+        user_schema: UserTokenSchema = Depends(get_user),
         ur: UserRepository = Depends(get_user_repo),
         gr: GameRepository = Depends(get_game_repo)
     ) -> 'GameService':

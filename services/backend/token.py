@@ -15,7 +15,7 @@ from .config import (
     SECRET,
     Config,
 )
-from .schemas import UserSchema
+from .schemas import UserTokenSchema
 
 
 def decode_jwt(token: str) -> dict[str, Any]:
@@ -33,11 +33,12 @@ def encode_jwt(payload: dict[str, Any]) -> str:
 
 
 class AccessToken:
-    def __init__(self,
-                 user: User | UserSchema | dict[str, Any],
-                 created_date: datetime | str | None = None,
-                 lifetime: timedelta | float | None = None
-                 ) -> None:
+    def __init__(
+        self,
+        user: User | UserTokenSchema | dict[str, Any],
+        created_date: datetime | str | None = None,
+        lifetime: timedelta | float | None = None
+    ) -> None:
         if created_date is None:
             self.created_date = datetime.now(UTC).replace(tzinfo=None)
         elif isinstance(created_date, str):
@@ -51,9 +52,9 @@ class AccessToken:
         else:
             self.lifetime = lifetime
         if isinstance(user, dict):
-            self.user = UserSchema(**user)
+            self.user = UserTokenSchema(**user)
         elif isinstance(user, User):
-            self.user = UserSchema.from_db(user)
+            self.user = UserTokenSchema.from_db(user)
         else:
             self.user = user
 

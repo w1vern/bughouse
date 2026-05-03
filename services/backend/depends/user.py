@@ -24,14 +24,14 @@ from ..redis import (
     RedisType,
     get_redis_client,
 )
-from ..schemas import UserSchema
+from ..schemas import UserTokenSchema
 from ..token import AccessToken
 
 
 async def get_user(
     access_token: str | None = Cookie(default=None),
     redis: Redis = Depends(get_redis_client)
-) -> UserSchema:
+) -> UserTokenSchema:
     if access_token is None:
         raise AccessTokenMissingException()
     access = AccessToken.from_token(access_token)
@@ -46,7 +46,7 @@ async def get_user(
 
 
 async def get_db_user(
-    user: UserSchema = Depends(get_user),
+    user: UserTokenSchema = Depends(get_user),
     ur: UserRepository = Depends(get_user_repo)
 ) -> User:
     user_db = await ur.get_by_id(user.id)

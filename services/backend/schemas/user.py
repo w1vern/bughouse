@@ -6,6 +6,18 @@ from pydantic import BaseModel
 from shared.database import User
 
 
+class UserTokenSchema(BaseModel):
+    id: UUID
+    username: str
+
+    @classmethod
+    def from_db(cls, user: User) -> "UserTokenSchema":
+        return cls(
+            id=user.id,
+            username=user.username,
+        )
+
+
 class UserSchema(BaseModel):
     id: UUID
     email: str | None

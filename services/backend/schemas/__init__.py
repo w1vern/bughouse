@@ -5,5 +5,6 @@ from .user import (
     CreateUserSchema,
     EditUserSchema,
     LoginUserSchema,
-    UserSchema
+    UserSchema,
+    UserTokenSchema
 )
