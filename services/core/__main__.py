@@ -16,6 +16,7 @@ from shared.infrastructure import (
 )
 from shared.protobuf import core_pb2_grpc
 
+from .config import Config
 from .game.manager import GameManager
 from .invites import InviteManager
 from .lobby.manager import LobbyManager
@@ -42,14 +43,14 @@ async def main() -> None:
         notifier=notifier,
         session_factory=session_manager.context_session,
         ranking=env_config.ranking,
-        abort_timeout_sec=env_config.core.abort_timeout_sec,
+        abort_timeout=Config.abort_timeout,
     )
     queue_mgr = QueueManager(
         lobby_mgr=lobby_mgr,
         game_mgr=game_mgr,
         notifier=notifier,
         user_repo_factory=_user_repo_ctx,
-        tick_sec=env_config.core.queue_tick_sec,
+        tick=env_config.core.queue_tick,
         ranking=env_config.ranking,
     )
     sessions = UserSessionIndex(lobby_mgr, game_mgr)

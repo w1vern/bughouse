@@ -54,7 +54,7 @@ class Clocks:
             if entry is None:
                 return 0
             color, task, started_at = entry
-            elapsed_ms = int((time.monotonic() - started_at) * 1000)
+            elapsed = int((time.monotonic() - started_at) * 1000)
             task.cancel()
         try:
             await task
@@ -62,11 +62,11 @@ class Clocks:
             pass
         async with self._lock:
             current = self.ms[(board_idx, color)]
-            new_val = current - elapsed_ms + increment_ms
+            new_val = current - elapsed + increment_ms
             if new_val < 0:
                 new_val = 0
             self.ms[(board_idx, color)] = new_val
-            return elapsed_ms
+            return elapsed
 
     async def shutdown(self) -> None:
         async with self._lock:
@@ -84,27 +84,27 @@ class Clocks:
     def snapshot(self) -> dict[str, int]:
         now = time.monotonic()
         out: dict[str, int] = {}
-        for (board_idx, color), base_ms in self.ms.items():
+        for (board_idx, color), base in self.ms.items():
             active = self._active.get(board_idx)
             if active is not None and active[0] == color:
                 elapsed = int((now - active[2]) * 1000)
-                remaining = base_ms - elapsed
+                remaining = base - elapsed
                 if remaining < 0:
                     remaining = 0
                 out[_key_name(board_idx, color)] = remaining
             else:
-                out[_key_name(board_idx, color)] = base_ms
+                out[_key_name(board_idx, color)] = base
         return out
 
     async def _watchdog(
         self,
         board_idx: int,
         color: chess.Color,
-        remaining_ms: int,
+        remaining: int,
         on_flag: FlagCallback,
     ) -> None:
         try:
-            await asyncio.sleep(remaining_ms / 1000)
+            await asyncio.sleep(remaining / 1000)
         except asyncio.CancelledError:
             raise
         me = asyncio.current_task()

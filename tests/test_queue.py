@@ -232,7 +232,7 @@ class QueueManagerTests(unittest.IsolatedAsyncioTestCase):
             game_mgr=self.game_mgr,  # type: ignore[arg-type]
             notifier=self.notifier,  # type: ignore[arg-type]
             user_repo_factory=self.user_repo_factory,  # type: ignore[arg-type]
-            tick_sec=999.0,
+            tick=999_000.0,
             ranking=ranking_params(),
         )
 
@@ -334,7 +334,7 @@ class QueueManagerTests(unittest.IsolatedAsyncioTestCase):
             game_mgr=self.game_mgr,  # type: ignore[arg-type]
             notifier=self.notifier,  # type: ignore[arg-type]
             user_repo_factory=self.user_repo_factory,  # type: ignore[arg-type]
-            tick_sec=999.0,
+            tick=999_000.0,
             ranking=ranking_params(),
         )
         try:
@@ -354,7 +354,7 @@ class QueueManagerTests(unittest.IsolatedAsyncioTestCase):
         for lobby in lobbies:
             await self.manager.enqueue(lobby)
 
-        await self.manager._tick()
+        await self.manager._do_tick()
 
         self.assertEqual([self.manager.get(lobby.id) for lobby in lobbies], [None] * 4)
         self.assertEqual(self.lobby_mgr.dissolved, [lobby.id for lobby in lobbies])
@@ -371,7 +371,7 @@ class QueueManagerTests(unittest.IsolatedAsyncioTestCase):
         await self.manager.enqueue(first)
         await self.manager.enqueue(second)
 
-        await self.manager._tick()
+        await self.manager._do_tick()
 
         self.assertEqual(self.game_mgr.created, [])
         self.assertIsNotNone(self.manager.get(first.id))

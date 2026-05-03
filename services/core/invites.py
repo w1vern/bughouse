@@ -16,7 +16,7 @@ from .notifier import ONLINE_KEY_PREFIX, Notifier
 
 logger = setup_logger(__name__)
 
-INVITE_TTL_SEC = 60.0
+INVITE_TTL = 60_000.0
 
 
 @dataclass(slots=True)
@@ -35,14 +35,14 @@ class InviteManager:
         games: GameManager,
         notifier: Notifier,
         redis: Redis,
-        ttl_sec: float = INVITE_TTL_SEC,
+        ttl: float = INVITE_TTL,
     ) -> None:
         self._invites: dict[tuple[str, str], Invite] = {}
         self._lobbies = lobbies
         self._games = games
         self._notifier = notifier
         self._redis = redis
-        self._ttl = ttl_sec
+        self._ttl = ttl
 
     async def send(self, sender: str, receiver: str, idx: int) -> None:
         if sender == receiver:
@@ -73,7 +73,7 @@ class InviteManager:
             receiver=receiver,
             lobby_id=lobby.id,
             idx=idx,
-            expires_at=time.monotonic() + self._ttl,
+            expires_at=time.monotonic() + self._ttl / 1000,
         )
         await self._notifier.publish_invite_receive(receiver, sender, idx)
 

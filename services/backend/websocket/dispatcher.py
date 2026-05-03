@@ -81,8 +81,8 @@ async def _h_lobby_create(stub: Stub, user: User, cmd: LobbyCreateMsg) -> CamelM
     resp = await stub.CreateLobby(
         pb.CreateLobbyReq(
             username=user.username,
-            initial_ms=cmd.data.init_sec * 1000,
-            increment_ms=cmd.data.incr_sec * 1000,
+            initial_ms=cmd.data.init_ms,
+            increment_ms=cmd.data.incr_ms,
         )
     )
     return _err_from_status(resp)
@@ -129,8 +129,8 @@ async def _h_lobby_config(stub: Stub, user: User, cmd: LobbyConfigMsg) -> CamelM
     resp = await stub.SetLobbyConfig(
         pb.SetConfigReq(
             leader=user.username,
-            initial_ms=cmd.data.init_sec * 1000,
-            increment_ms=cmd.data.incr_sec * 1000,
+            initial_ms=cmd.data.init_ms,
+            increment_ms=cmd.data.incr_ms,
             rated=cmd.data.rated,
         )
     )

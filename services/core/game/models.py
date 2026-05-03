@@ -41,7 +41,7 @@ class MoveRecord:
     board: int
     username: str
     uci: str
-    ms_spent: int
+    spent: int
     index: int
 
 

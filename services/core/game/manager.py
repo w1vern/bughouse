@@ -47,14 +47,14 @@ class GameManager:
         notifier: Notifier,
         session_factory: SessionFactory,
         ranking: RankingParams,
-        abort_timeout_sec: float,
+        abort_timeout: float,
     ) -> None:
         self._games: dict[UUID, GameObj] = {}
         self._user_to_game: dict[str, UUID] = {}
         self._notifier = notifier
         self._session_factory = session_factory
         self._ranking = ranking
-        self._abort_timeout_sec = abort_timeout_sec
+        self._abort_timeout = abort_timeout
         self._abort_tasks: dict[UUID, asyncio.Task[None]] = {}
         self._ts = trueskill.TrueSkill(
             mu=ranking.mu,
@@ -146,13 +146,13 @@ class GameManager:
         except (chess.IllegalMoveError, chess.InvalidMoveError, ValueError) as exc:
             raise GameError.illegal_move(str(exc)) from exc
 
-        ms_spent = await game.clocks.stop_and_apply(board_idx, game.config.increment_ms)
+        spent = await game.clocks.stop_and_apply(board_idx, game.config.increment_ms)
         game.moves.append(
             MoveRecord(
                 board=board_idx,
                 username=username,
                 uci=uci,
-                ms_spent=ms_spent,
+                spent=spent,
                 index=len(game.moves),
             )
         )
@@ -236,7 +236,7 @@ class GameManager:
 
     async def _abort_watchdog(self, game_id: UUID) -> None:
         try:
-            await asyncio.sleep(self._abort_timeout_sec)
+            await asyncio.sleep(self._abort_timeout / 1000)
         except asyncio.CancelledError:
             return
         game = self._games.get(game_id)
@@ -347,7 +347,7 @@ class GameManager:
                 )
 
             moves_payload: list[tuple[str, float, int, UUID]] = [
-                (m.uci, m.ms_spent / 1000.0, m.board, users[game.pos_of(m.username)].id)
+                (m.uci, m.spent / 1000.0, m.board, users[game.pos_of(m.username)].id)
                 for m in game.moves
             ]
 

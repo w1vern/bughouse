@@ -74,8 +74,8 @@ class LobbyPlayerSlot(CamelModel):
 
 
 class LobbyTimeData(CamelModel):
-    init_sec: int = Field(ge=0)
-    incr_sec: int = Field(ge=0)
+    init_ms: int = Field(ge=0)
+    incr_ms: int = Field(ge=0)
 
 
 class LobbyTimeRatingData(LobbyTimeData):

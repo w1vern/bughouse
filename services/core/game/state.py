@@ -10,7 +10,7 @@ from shared.events import (
     PocketData,
 )
 
-from ..notifier import clocks_payload, now_ms, result_status
+from ..notifier import clocks_payload, now, result_status
 from .board import BughouseBoards, PocketDict
 from .models import GameObj
 
@@ -94,5 +94,5 @@ def build_bughouse(game: GameObj) -> BughouseData:
     return BughouseData(
         boards=(board0, board1),
         status=status,
-        timestamp=now_ms(),
+        timestamp=now(),
     )

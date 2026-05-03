@@ -54,8 +54,8 @@ def _slot_payload(seat: Seat | None) -> LobbyPlayerSlot | None:
 
 def lobby_data(lobby: Lobby) -> LobbyData:
     return LobbyData(
-        init_sec=lobby.config.initial_ms // 1000,
-        incr_sec=lobby.config.increment_ms // 1000,
+        init_ms=lobby.config.initial_ms,
+        incr_ms=lobby.config.increment_ms,
         rated=lobby.config.rated,
         in_queue=lobby.state == LobbyState.IN_QUEUE,
         slots=[_slot_payload(s) for s in lobby.seats],
@@ -65,8 +65,8 @@ def lobby_data(lobby: Lobby) -> LobbyData:
 
 def lobby_config_payload(lobby: Lobby) -> LobbyTimeRatingData:
     return LobbyTimeRatingData(
-        init_sec=lobby.config.initial_ms // 1000,
-        incr_sec=lobby.config.increment_ms // 1000,
+        init_ms=lobby.config.initial_ms,
+        incr_ms=lobby.config.increment_ms,
         rated=lobby.config.rated,
     )
 
@@ -261,5 +261,5 @@ class Notifier:
         await self._send(username, SyncMsg(data=sync))
 
 
-def now_ms() -> int:
+def now() -> int:
     return int(time.time() * 1000)

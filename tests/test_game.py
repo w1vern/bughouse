@@ -197,7 +197,7 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
             notifier=self.notifier,  # type: ignore[arg-type]
             session_factory=self.session_factory,  # type: ignore[arg-type]
             ranking=ranking_params(),
-            abort_timeout_sec=999.0,
+            abort_timeout=999_000.0,
         )
         self._patches = (
             patch.object(game_manager_module, "UserRepository", FakeUserRepository),
@@ -223,10 +223,10 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         self,
         *,
         config: LobbyConfig | None = None,
-        abort_timeout_sec: float | None = None,
+        abort_timeout: float | None = None,
     ) -> object:
-        if abort_timeout_sec is not None:
-            self.manager._abort_timeout_sec = abort_timeout_sec
+        if abort_timeout is not None:
+            self.manager._abort_timeout = abort_timeout
         return await self.manager.create_game(
             seats(),
             config or LobbyConfig(initial_ms=60_000, increment_ms=1_000, rated=False),
@@ -324,7 +324,7 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.session_factory.created_games[0]["result"], GameResult.TEAM_B.value)
 
     async def test_abort_watchdog_finishes_game_without_moves(self) -> None:
-        self.manager._abort_timeout_sec = 0.01
+        self.manager._abort_timeout = 10.0
         game_id = await self.create_game()
 
         await asyncio.sleep(0.05)
@@ -338,7 +338,7 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
             lobbies=SimpleNamespace(get_by_user=lambda _username: None),  # type: ignore[arg-type]
             games=self.manager,
         )
-        self.manager._abort_timeout_sec = 0.01
+        self.manager._abort_timeout = 10.0
         await self.create_game()
 
         await asyncio.sleep(0.05)

@@ -44,11 +44,11 @@ class QueueManager:
         game_mgr: _GameManagerProto,
         notifier: Notifier,
         user_repo_factory: UserRepoFactory,
-        tick_sec: float,
+        tick: float,
         ranking: RankingParams,
     ) -> None:
         self._entries: dict[UUID, QueueEntry] = {}
-        self._tick_sec = tick_sec
+        self._tick = tick
         self._task: asyncio.Task[None] | None = None
         self._lobby_mgr = lobby_mgr
         self._game_mgr = game_mgr
@@ -135,13 +135,13 @@ class QueueManager:
 
     async def _run_loop(self) -> None:
         while True:
-            await asyncio.sleep(self._tick_sec)
+            await asyncio.sleep(self._tick / 1000)
             try:
-                await self._tick()
+                await self._do_tick()
             except Exception:
                 logger.exception("queue tick failed")
 
-    async def _tick(self) -> None:
+    async def _do_tick(self) -> None:
         groups: dict[tuple[bool, int, int], list[QueueEntry]] = defaultdict(list)
         for entry in self._entries.values():
             key = (entry.config.rated, entry.config.initial_ms, entry.config.increment_ms)
