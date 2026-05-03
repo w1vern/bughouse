@@ -39,14 +39,17 @@ class AuthService:
     ) -> None:
         if register_schema.password != register_schema.repeat_password:
             raise PasswordsDoNotMatchException()
-        await self.ur.create(
-            email=register_schema.email,
-            username=register_schema.username,
-            password=register_schema.password,
-            rating=env_config.ranking.mu,
-            sigma=env_config.ranking.sigma,
-            color=0
-        )
+        try:
+            await self.ur.create(
+                email=register_schema.email,
+                username=register_schema.username,
+                password=register_schema.password,
+                rating=env_config.ranking.mu,
+                sigma=env_config.ranking.sigma,
+                color=0
+            )
+        except Exception:
+            raise UserAlreadyExistsException()
 
     async def login(
         self,
