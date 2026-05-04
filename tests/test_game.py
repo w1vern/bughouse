@@ -225,7 +225,7 @@ class GameObjColorFlipTests(unittest.TestCase):
 
 
 class BughouseBoardsTests(unittest.TestCase):
-    def test_capture_transfers_piece_to_partner_pocket(self) -> None:
+    def test_capture_transfers_piece_to_partner_fen_reserve(self) -> None:
         boards = BughouseBoards()
 
         boards.push(0, "e2e4")
@@ -234,9 +234,10 @@ class BughouseBoardsTests(unittest.TestCase):
 
         self.assertEqual(result.captured, chess.PAWN)
         self.assertEqual(boards.last_move(0), "e4d5")
-        self.assertEqual(boards.board_pockets(0), {"w": {}, "b": {}})
-        self.assertEqual(boards.board_pockets(1), {"w": {}, "b": {"P": 1}})
+        self.assertIn("[]", boards.fen(0))
+        self.assertIn("[p]", boards.fen(1))
         self.assertEqual(boards.to_snapshot(0)["last_move"], "e4d5")
+        self.assertNotIn("pockets", boards.to_snapshot(0))
 
     def test_illegal_move_is_rejected_without_changing_board(self) -> None:
         boards = BughouseBoards()
@@ -315,6 +316,7 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bughouse.boards[1].players[0].name, "dave")
         self.assertEqual(bughouse.boards[1].players[1].name, "bob")
         self.assertEqual(bughouse.incr, 1_000)
+        self.assertNotIn('"pocket"', bughouse.model_dump_json(by_alias=True))
         self.assertIs(self.manager.get_game_by_user("carol"), game)
 
     async def test_make_move_records_move_publishes_to_other_players_and_advances_turn(self) -> None:

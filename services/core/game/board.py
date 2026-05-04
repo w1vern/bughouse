@@ -6,19 +6,6 @@ from typing import Any
 import chess
 import chess.variant
 
-PIECE_SYMBOL = {
-    chess.PAWN: "P",
-    chess.KNIGHT: "N",
-    chess.BISHOP: "B",
-    chess.ROOK: "R",
-    chess.QUEEN: "Q",
-    chess.KING: "K",
-}
-
-PocketDict = dict[str, int]
-BoardPockets = dict[str, PocketDict]
-PocketsDict = dict[str, BoardPockets]
-
 
 @dataclass(slots=True)
 class ApplyResult:
@@ -28,7 +15,6 @@ class ApplyResult:
     captured: chess.PieceType | None
     captured_promoted: bool
     fen_after: str
-    pockets_after: PocketsDict
 
 
 class BughouseBoards:
@@ -85,7 +71,6 @@ class BughouseBoards:
             captured=captured_type,
             captured_promoted=captured_promoted,
             fen_after=board.fen(),
-            pockets_after=self._all_pockets(),
         )
 
     def is_checkmate(self, board_idx: int) -> bool:
@@ -103,30 +88,10 @@ class BughouseBoards:
     def fen(self, board_idx: int) -> str:
         return self.boards[board_idx].fen()
 
-    def _pocket_to_dict(
-        self, pocket: chess.variant.CrazyhousePocket
-    ) -> PocketDict:
-        return {
-            symbol: pocket.count(pt)
-            for pt, symbol in PIECE_SYMBOL.items()
-            if pt != chess.KING and pocket.count(pt) > 0
-        }
-
-    def board_pockets(self, board_idx: int) -> BoardPockets:
-        b = self.boards[board_idx]
-        return {
-            "w": self._pocket_to_dict(b.pockets[chess.WHITE]),
-            "b": self._pocket_to_dict(b.pockets[chess.BLACK]),
-        }
-
-    def _all_pockets(self) -> PocketsDict:
-        return {"b0": self.board_pockets(0), "b1": self.board_pockets(1)}
-
     def to_snapshot(self, pov_board_idx: int) -> dict[str, Any]:
         partner_idx = 1 - pov_board_idx
         return {
             "fen": self.fen(pov_board_idx),
             "mate_fen": self.fen(partner_idx),
-            "pockets": self._all_pockets(),
             "last_move": self._last_move[pov_board_idx],
         }

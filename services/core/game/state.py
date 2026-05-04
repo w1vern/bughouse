@@ -9,32 +9,17 @@ from shared.events import (
     BughouseData,
     ClocksData,
     PlayerData,
-    PocketData,
 )
 
 from ..notifier import clocks_payload, result_status
-from .board import BughouseBoards, PocketDict
+from .board import BughouseBoards
 from .models import GameObj, pos_for
-
-
-_PIECE_LETTER_TO_NAME = {
-    "P": "pawn",
-    "N": "knight",
-    "B": "bishop",
-    "R": "rook",
-    "Q": "queen",
-}
 
 
 @dataclass(slots=True)
 class _PlayerView:
     username: str
     rating: float
-
-
-def _pocket_payload(pocket: PocketDict) -> PocketData:
-    counts = {_PIECE_LETTER_TO_NAME[k]: v for k, v in pocket.items()}
-    return PocketData(**counts)
 
 
 def _last_move_to_squares(uci: str | None) -> tuple[str, str] | tuple[str] | None:
@@ -57,7 +42,6 @@ def _board_data(
     clocks: ClocksData,
 ) -> BoardData:
     fen = boards.fen(board_idx)
-    pockets = boards.board_pockets(board_idx)
     if board_idx == 0:
         white_clock_time, black_clock_time = clocks.b0w, clocks.b0b
     else:
@@ -70,14 +54,12 @@ def _board_data(
                 rating=white.rating,
                 color="white",
                 clock_time=white_clock_time,
-                pocket=_pocket_payload(pockets["w"]),
             ),
             PlayerData(
                 name=black.username,
                 rating=black.rating,
                 color="black",
                 clock_time=black_clock_time,
-                pocket=_pocket_payload(pockets["b"]),
             ),
         ),
         last_move=_last_move_to_squares(boards.last_move(board_idx)),

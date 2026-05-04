@@ -122,20 +122,11 @@ class ClocksData(CamelModel):
     b1b: int = Field(ge=0)
 
 
-class PocketData(CamelModel):
-    pawn: int = 0
-    knight: int = 0
-    bishop: int = 0
-    rook: int = 0
-    queen: int = 0
-
-
 class PlayerData(CamelModel):
     name: str
     rating: float
     color: ChessColor
     clock_time: int = Field(ge=0)
-    pocket: PocketData
 
 
 class BoardData(CamelModel):
