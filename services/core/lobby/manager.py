@@ -169,14 +169,6 @@ class LobbyManager:
         lobby.state = LobbyState.IDLE
         return lobby
 
-    async def dissolve(self, lobby_id: UUID) -> None:
-        lobby = self._lobbies.pop(lobby_id, None)
-        if lobby is None:
-            return
-        for username in lobby.usernames:
-            self._user_to_lobby.pop(username, None)
-            await self._notifier.mark_idle_if_online(username)
-
     # ---------------- Internals ----------------
 
     def _require_lobby(self, lobby_id: UUID) -> Lobby:

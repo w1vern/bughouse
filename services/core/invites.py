@@ -55,7 +55,7 @@ class InviteManager:
             raise LobbyError.user_not_in_lobby()
         if lobby.leader != sender:
             raise LobbyError.not_leader()
-        if lobby.state == LobbyState.IN_QUEUE:
+        if lobby.state != LobbyState.IDLE:
             raise LobbyError.cannot_modify_while_in_queue()
         if lobby.seats[idx] is not None:
             raise LobbyError.seat_occupied()

@@ -194,10 +194,11 @@ class GameObjTests(unittest.TestCase):
         self.assertEqual(game.partner_of("bob"), "alice")
         self.assertEqual(game.partner_of("carol"), "dave")
         self.assertEqual(game.partner_of("dave"), "carol")
+        # Both boards start with white-to-move: alice (board 0 white) and dave (board 1 white).
         self.assertTrue(game.is_turn_of("alice"))
         self.assertFalse(game.is_turn_of("bob"))
         self.assertFalse(game.is_turn_of("carol"))
-        self.assertFalse(game.is_turn_of("dave"))
+        self.assertTrue(game.is_turn_of("dave"))
 
 
 class GameObjColorFlipTests(unittest.TestCase):
