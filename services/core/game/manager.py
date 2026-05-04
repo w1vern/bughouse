@@ -311,23 +311,19 @@ class GameManager:
             self._detach_game(game)
 
     async def _return_to_lobbies(self, game: GameObj) -> None:
-        """Send each player back to their pre-game lobby (if any), or mark idle."""
+        """Restore backend lobby/idle state without forcing a client sync."""
         lobby_mgr = self._lobby_mgr
         released: dict[UUID, Lobby | None] = {}
         for p in game.players:
             lobby_id = p.lobby_id
             if lobby_mgr is None or lobby_id is None:
                 await self._notifier.mark_idle_if_online(p.username)
-                await self._notifier.publish_back_to_idle(p.username)
                 continue
             if lobby_id not in released:
                 released[lobby_id] = await lobby_mgr.release_from_game(lobby_id)
             lobby = released[lobby_id]
             if lobby is None:
                 await self._notifier.mark_idle_if_online(p.username)
-                await self._notifier.publish_back_to_idle(p.username)
-                continue
-            await self._notifier.publish_back_to_lobby(p.username, lobby)
 
     def _detach_game(self, game: GameObj) -> None:
         self._games.pop(game.id, None)

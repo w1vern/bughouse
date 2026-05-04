@@ -27,7 +27,7 @@ from services.core.game.models import (
     pos_to_color,
     team_of_pos,
 )
-from services.core.lobby.models import LobbyConfig, Seat
+from services.core.lobby.models import Lobby, LobbyConfig, LobbyState, Seat
 from services.core.session import UserSessionIndex
 from shared.events import BughouseData
 from shared.infrastructure import RankingParams
@@ -394,9 +394,11 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertNotIn(game_id, self.manager._games)
         self.assertIsNone(self.manager.get_game_by_user("alice"))
-        # No lobby manager attached — players go to idle.
+        # No lobby manager attached: backend marks online players idle,
+        # but the finished game screen is not forced away by a sync push.
         self.assertEqual(self.notifier.idle, list(PLAYER_NAMES))
-        self.assertEqual(self.notifier.back_to_idle, list(PLAYER_NAMES))
+        self.assertEqual(self.notifier.back_to_idle, [])
+        self.assertEqual(self.notifier.back_to_lobby, [])
         self.assertEqual(len(self.notifier.game_ends), 1)
         usernames, status, rating_changes = self.notifier.game_ends[0]
         self.assertEqual(usernames, list(PLAYER_NAMES))
@@ -475,7 +477,7 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(error.exception.code, "user_not_found")
         self.assertEqual(self.notifier.busy, [])
 
-    async def test_finish_returns_each_player_to_their_lobby(self) -> None:
+    async def test_finish_releases_lobbies_without_forcing_client_sync(self) -> None:
         # Stub a minimal lobby manager: maps usernames to lobby ids.
         lobby_a, lobby_b = uuid4(), uuid4()
         per_user_lobby = {
@@ -485,18 +487,47 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
             "dave": lobby_b,
         }
         released: list[UUID] = []
-        sentinel_lobbies = {lobby_a: SimpleNamespace(id=lobby_a), lobby_b: SimpleNamespace(id=lobby_b)}
+        sentinel_lobbies = {
+            lobby_a: Lobby(
+                id=lobby_a,
+                leader="alice",
+                seats=[
+                    Seat(username="alice", rating=25.0),
+                    Seat(username="bob", rating=25.0),
+                    None,
+                    None,
+                ],
+                config=LobbyConfig(),
+                state=LobbyState.IN_GAME,
+            ),
+            lobby_b: Lobby(
+                id=lobby_b,
+                leader="carol",
+                seats=[
+                    Seat(username="carol", rating=25.0),
+                    Seat(username="dave", rating=25.0),
+                    None,
+                    None,
+                ],
+                config=LobbyConfig(),
+                state=LobbyState.IN_GAME,
+            ),
+        }
 
         class StubLobbyMgr:
-            def get_by_user(self, username: str) -> object | None:
+            def get_by_user(self, username: str) -> Lobby | None:
                 lobby_id = per_user_lobby.get(username)
                 return sentinel_lobbies.get(lobby_id) if lobby_id else None
 
-            async def release_from_game(self, lobby_id: UUID) -> object | None:
+            async def release_from_game(self, lobby_id: UUID) -> Lobby | None:
                 released.append(lobby_id)
-                return sentinel_lobbies.get(lobby_id)
+                lobby = sentinel_lobbies.get(lobby_id)
+                if lobby is not None:
+                    lobby.state = LobbyState.IDLE
+                return lobby
 
-        self.manager.attach_lobby_manager(StubLobbyMgr())  # type: ignore[arg-type]
+        stub_lobbies = StubLobbyMgr()
+        self.manager.attach_lobby_manager(stub_lobbies)  # type: ignore[arg-type]
 
         await self.create_game(
             lobby_ids=(lobby_a, lobby_a, lobby_b, lobby_b),
@@ -505,13 +536,24 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
 
         # Each lobby is released exactly once.
         self.assertEqual(sorted(released), sorted([lobby_a, lobby_b]))
-        # All four players received a back-to-lobby sync.
-        self.assertEqual(
-            sorted(name for name, _ in self.notifier.back_to_lobby),
-            list(PLAYER_NAMES),
-        )
-        # No idle marks because everyone is still in a lobby.
+        self.assertEqual(sentinel_lobbies[lobby_a].state, LobbyState.IDLE)
+        self.assertEqual(sentinel_lobbies[lobby_b].state, LobbyState.IDLE)
+        # Clients receive GAME_END only; leaving the finished game screen is explicit.
+        self.assertEqual(self.notifier.back_to_lobby, [])
         self.assertEqual(self.notifier.back_to_idle, [])
+        # No idle marks because everyone is still in a lobby.
+        self.assertEqual(self.notifier.idle, [])
+
+        sessions = UserSessionIndex(
+            lobbies=stub_lobbies,  # type: ignore[arg-type]
+            games=self.manager,
+        )
+        sync = sessions.get_sync("alice")
+        self.assertEqual(sync.state, "LOBBY")
+        self.assertIsNotNone(sync.lobby)
+        assert sync.lobby is not None
+        self.assertFalse(sync.lobby.in_queue)
+        self.assertIsNone(sync.game)
 
 
 class PositionMappingTests(unittest.TestCase):
