@@ -1,5 +1,5 @@
 
-from .config import BootLevel, env_config, RankingParams
+from .config import BootLevel, RankingParams, env_config
 from .logger import setup_logger
 from .redis import get_redis_client
 

@@ -35,6 +35,7 @@ from shared.events import (
 )
 from shared.infrastructure import setup_logger
 from shared.protobuf import core_pb2 as pb
+
 from .grpc_client import AsyncCoreServiceStub
 
 logger = setup_logger(__name__)

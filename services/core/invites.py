@@ -8,11 +8,11 @@ from redis.asyncio import Redis
 
 from shared.infrastructure import setup_logger
 
+from .config import Config
 from .game.manager import GameManager
 from .lobby.errors import LobbyError
 from .lobby.manager import LobbyManager
 from .lobby.models import LobbyState
-from .config import Config
 from .notifier import ONLINE_KEY_PREFIX, Notifier
 
 logger = setup_logger(__name__)

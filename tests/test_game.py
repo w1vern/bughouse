@@ -27,11 +27,15 @@ from services.core.game.models import (
     pos_to_color,
     team_of_pos,
 )
-from services.core.lobby.models import Lobby, LobbyConfig, LobbyState, Seat
+from services.core.lobby.models import (
+    Lobby,
+    LobbyConfig,
+    LobbyState,
+    Seat
+)
 from services.core.session import UserSessionIndex
 from shared.events import BughouseData, GameChatData
 from shared.infrastructure import RankingParams
-
 
 # Position semantics (frontend layout):
 #   0 — leader, 1 — partner, 2 — leader's same-board opp, 3 — partner's same-board opp.

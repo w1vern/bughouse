@@ -3,20 +3,30 @@ from fastapi import Depends, HTTPException
 
 from shared.protobuf import core_pb2 as pb
 
-from ..schemas import StatsSchema
-from ..websocket.grpc_client import AsyncCoreServiceStub, get_core_stub
+from ..depends import get_user
+from ..schemas import StatsSchema, UserTokenSchema
+from ..websocket.grpc_client import (
+    AsyncCoreServiceStub,
+    get_core_stub
+)
 
 
 class StatsService:
-    def __init__(self, stub: AsyncCoreServiceStub) -> None:
+    def __init__(
+        self,
+        user_schema: UserTokenSchema,
+        stub: AsyncCoreServiceStub
+    ) -> None:
+        self.user_schema = user_schema
         self.stub = stub
 
     @classmethod
     def depends(
         cls,
+        user_schema: UserTokenSchema = Depends(get_user),
         stub: AsyncCoreServiceStub = Depends(get_core_stub)
     ) -> 'StatsService':
-        return StatsService(stub=stub)
+        return StatsService(user_schema=user_schema, stub=stub)
 
     async def get(self) -> StatsSchema:
         try:

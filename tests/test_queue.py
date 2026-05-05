@@ -9,7 +9,12 @@ import chess
 
 from services.core.game.models import pos_to_color
 from services.core.lobby.manager import LobbyManager
-from services.core.lobby.models import Lobby, LobbyConfig, LobbyState, Seat
+from services.core.lobby.models import (
+    Lobby,
+    LobbyConfig,
+    LobbyState,
+    Seat
+)
 from services.core.queue.errors import (
     ERR_ALREADY_IN_QUEUE,
     ERR_BAD_LOBBY_SIZE,
@@ -20,7 +25,10 @@ from services.core.queue.errors import (
 )
 from services.core.queue.manager import QueueManager
 from services.core.queue.models import QueueEntry
-from services.core.queue.ranker import compose_teams, find_best_assignment
+from services.core.queue.ranker import (
+    compose_teams,
+    find_best_assignment
+)
 from shared.infrastructure import RankingParams
 
 

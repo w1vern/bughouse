@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from shared.infrastructure import env_config, BootLevel
+from shared.infrastructure import BootLevel, env_config
 
 
 class Config:

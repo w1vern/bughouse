@@ -1,4 +1,5 @@
 
+import tomllib
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -10,8 +11,6 @@ from .websocket.grpc_client import (
     close_grpc_channel,
     init_grpc_channel
 )
-
-import tomllib
 
 with open("pyproject.toml", "rb") as f:
     data = tomllib.load(f)

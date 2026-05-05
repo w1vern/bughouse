@@ -13,7 +13,9 @@ logger = setup_logger(__name__)
 _channel: aio.Channel | None = None
 
 if TYPE_CHECKING:
-    from shared.protobuf.core_pb2_grpc import CoreServiceAsyncStub as AsyncCoreServiceStub
+    from shared.protobuf.core_pb2_grpc import (
+        CoreServiceAsyncStub as AsyncCoreServiceStub
+    )
 else:
     AsyncCoreServiceStub = core_pb2_grpc.CoreServiceStub
 

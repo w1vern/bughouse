@@ -5,7 +5,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from pydantic.json_schema import GenerateJsonSchema, models_json_schema
+from pydantic.json_schema import (
+    GenerateJsonSchema,
+    models_json_schema
+)
 
 from . import CLIENT_EVENTS, SERVER_EVENTS
 
