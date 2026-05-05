@@ -76,6 +76,34 @@ class BughouseBoards:
     def is_checkmate(self, board_idx: int) -> bool:
         return self.boards[board_idx].is_checkmate()
 
+    def is_immediate_checkmate(self, board_idx: int) -> bool:
+        board = self.boards[board_idx]
+        if not board.is_checkmate():
+            return False
+
+        checkers = list(chess.SquareSet(board.checkers()))
+        if len(checkers) != 1:
+            return True
+
+        checker_square = checkers[0]
+        checker = board.piece_at(checker_square)
+        if checker is None:
+            return True
+        if checker.piece_type == chess.KNIGHT:
+            return True
+
+        king_square = board.king(board.turn)
+        if king_square is None:
+            return True
+
+        file_distance = abs(
+            chess.square_file(checker_square) - chess.square_file(king_square)
+        )
+        rank_distance = abs(
+            chess.square_rank(checker_square) - chess.square_rank(king_square)
+        )
+        return max(file_distance, rank_distance) <= 1
+
     def is_draw_rule(self) -> bool:
         for b in self.boards:
             if b.is_repetition(3) or b.is_seventyfive_moves():

@@ -269,6 +269,28 @@ class BughouseBoardsTests(unittest.TestCase):
 
         self.assertTrue(boards.is_draw_rule())
 
+    def test_distant_crazyhouse_mate_is_not_immediate_bughouse_mate(self) -> None:
+        boards = BughouseBoards()
+
+        for uci in ("f2f3", "e7e5", "g2g4", "d8h4"):
+            boards.push(0, uci)
+
+        self.assertTrue(boards.is_checkmate(0))
+        self.assertFalse(boards.is_immediate_checkmate(0))
+
+        boards.boards[0].pockets[chess.WHITE].add(chess.PAWN)
+
+        self.assertFalse(boards.is_checkmate(0))
+
+    def test_contact_crazyhouse_mate_is_immediate_bughouse_mate(self) -> None:
+        boards = BughouseBoards()
+
+        for uci in ("e2e4", "e7e5", "d1h5", "b8c6", "f1c4", "g8f6", "h5f7"):
+            boards.push(0, uci)
+
+        self.assertTrue(boards.is_checkmate(0))
+        self.assertTrue(boards.is_immediate_checkmate(0))
+
 
 class GameManagerTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
@@ -480,11 +502,14 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
     async def test_checkmate_finishes_game_persists_moves_and_cleans_users(self) -> None:
         game_id = await self.create_game()
 
-        # Fool's mate on board 0: alice (white pos 0) vs carol (black pos 2).
-        await self.manager.make_move("alice", "f2f3")
+        # Contact mate on board 0: alice (white pos 0) vs carol (black pos 2).
+        await self.manager.make_move("alice", "e2e4")
         await self.manager.make_move("carol", "e7e5")
-        await self.manager.make_move("alice", "g2g4")
-        await self.manager.make_move("carol", "d8h4")
+        await self.manager.make_move("alice", "d1h5")
+        await self.manager.make_move("carol", "b8c6")
+        await self.manager.make_move("alice", "f1c4")
+        await self.manager.make_move("carol", "g8f6")
+        await self.manager.make_move("alice", "h5f7")
 
         self.assertNotIn(game_id, self.manager._games)
         self.assertIsNone(self.manager.get_game_by_user("alice"))
@@ -496,17 +521,43 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.notifier.game_ends), 1)
         usernames, status, rating_changes = self.notifier.game_ends[0]
         self.assertEqual(usernames, list(PLAYER_NAMES))
-        # Carol (pos 2 → team B) checkmated alice (pos 0 → team A). Team B wins.
-        self.assertEqual(status, "WinB")
+        # Alice (pos 0 -> team A) checkmated Carol (pos 2 -> team B). Team A wins.
+        self.assertEqual(status, "WinA")
         self.assertEqual(rating_changes, {name: 0.0 for name in PLAYER_NAMES})
 
         self.assertEqual(len(self.session_factory.created_games), 1)
         persisted = self.session_factory.created_games[0]
-        self.assertEqual(persisted["result"], GameResult.TEAM_B.value)
+        self.assertEqual(persisted["result"], GameResult.TEAM_A.value)
         self.assertEqual(
             [move[0] for move in persisted["moves"]],
-            ["f2f3", "e7e5", "g2g4", "d8h4"],
+            ["e2e4", "e7e5", "d1h5", "b8c6", "f1c4", "g8f6", "h5f7"],
         )
+
+    async def test_distant_mate_waits_for_partner_piece_and_then_allows_drop(self) -> None:
+        game_id = await self.create_game()
+
+        # Crazyhouse sees this as mate, but in bughouse a future block from
+        # the partner board can still arrive.
+        await self.manager.make_move("alice", "f2f3")
+        await self.manager.make_move("carol", "e7e5")
+        await self.manager.make_move("alice", "g2g4")
+        await self.manager.make_move("carol", "d8h4")
+
+        game = self.manager._games[game_id]
+        self.assertTrue(game.boards.is_checkmate(0))
+        self.assertFalse(game.boards.is_immediate_checkmate(0))
+        self.assertEqual(self.notifier.game_ends, [])
+
+        await self.manager.make_move("dave", "e2e4")
+        await self.manager.make_move("bob", "d7d6")
+        await self.manager.make_move("dave", "e4e5")
+        await self.manager.make_move("bob", "d6e5")
+
+        self.assertFalse(game.boards.is_checkmate(0))
+        await self.manager.make_move("alice", "P@g3")
+
+        self.assertIn(game_id, self.manager._games)
+        self.assertEqual(self.notifier.game_ends, [])
 
     async def test_resign_finishes_for_opposing_team(self) -> None:
         await self.create_game()

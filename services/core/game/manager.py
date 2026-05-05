@@ -186,7 +186,7 @@ class GameManager:
         elif board_moves_before == 1:
             self._clear_auto_abort(game, board_idx)
 
-        if game.boards.is_checkmate(board_idx):
+        if game.boards.is_immediate_checkmate(board_idx):
             loser_color = game.boards.turn(board_idx)
             loser_pos = pos_for(board_idx, loser_color, game.color_flip)
             loser_team = team_of_pos(loser_pos)
