@@ -12,11 +12,10 @@ from .game.manager import GameManager
 from .lobby.errors import LobbyError
 from .lobby.manager import LobbyManager
 from .lobby.models import LobbyState
+from .config import Config
 from .notifier import ONLINE_KEY_PREFIX, Notifier
 
 logger = setup_logger(__name__)
-
-INVITE_TTL = 60_000.0
 
 
 @dataclass(slots=True)
@@ -35,7 +34,7 @@ class InviteManager:
         games: GameManager,
         notifier: Notifier,
         redis: Redis,
-        ttl: float = INVITE_TTL,
+        ttl: float = Config.invite_ttl,
     ) -> None:
         self._invites: dict[tuple[str, str], Invite] = {}
         self._lobbies = lobbies
@@ -98,7 +97,8 @@ class InviteManager:
             )
 
     def cleanup_for_lobby(self, lobby_id: UUID) -> None:
-        keys = [k for k, inv in self._invites.items() if inv.lobby_id == lobby_id]
+        keys = [k for k, inv in self._invites.items() if inv.lobby_id ==
+                lobby_id]
         for k in keys:
             self._invites.pop(k, None)
 

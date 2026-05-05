@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterable
-from uuid import UUID
 
 from redis.asyncio import Redis
 
