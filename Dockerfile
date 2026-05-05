@@ -3,18 +3,20 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
-    curl \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
-    && mv /root/.local/bin/uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.5 /uv /uvx /usr/local/bin/
+
+ENV UV_LINK_MODE=copy
 
 COPY pyproject.toml uv.lock ./
 
-RUN uv sync --locked --no-dev
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev
 
-COPY . .
+COPY shared/protobuf/*.proto shared/protobuf/
 
 RUN uv run --no-dev -m grpc_tools.protoc \
 		--proto_path=. \
@@ -22,7 +24,9 @@ RUN uv run --no-dev -m grpc_tools.protoc \
 		--pyi_out=. \
 		--grpc_python_out=. \
 		--mypy_grpc_out=. \
-		shared/protobuf/core.proto
+		shared/protobuf/*.proto
+
+COPY . .
 
 ENV PYTHONUNBUFFERED=1
 

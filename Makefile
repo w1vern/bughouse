@@ -31,7 +31,7 @@ docker_test-down:
 	docker compose -f compose.yml -f compose.test.yml down -v
 
 add_frontend:
-	git submodule add --name frontend https://github.com/ImmortalAI/Bughouse-Chess-Front services/frontend
+	git submodule add --name frontend https://github.com/ImmortalAI/bugchess-vue services/frontend
 
 install_submodules:
 	git submodule update --init --recursive
