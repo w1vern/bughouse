@@ -78,7 +78,7 @@ class BughouseBoards:
 
     def is_draw_rule(self) -> bool:
         for b in self.boards:
-            if b.is_fivefold_repetition() or b.is_seventyfive_moves():
+            if b.is_repetition(3) or b.is_seventyfive_moves():
                 return True
         return False
 

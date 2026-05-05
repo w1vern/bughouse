@@ -256,6 +256,19 @@ class BughouseBoardsTests(unittest.TestCase):
         self.assertEqual(boards.fen(0), before)
         self.assertIsNone(boards.last_move(0))
 
+    def test_threefold_repetition_is_draw_rule(self) -> None:
+        boards = BughouseBoards()
+
+        for uci in ("g1f3", "g8f6", "f3g1", "f6g8"):
+            boards.push(0, uci)
+
+        self.assertFalse(boards.is_draw_rule())
+
+        for uci in ("g1f3", "g8f6", "f3g1", "f6g8"):
+            boards.push(0, uci)
+
+        self.assertTrue(boards.is_draw_rule())
+
 
 class GameManagerTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:

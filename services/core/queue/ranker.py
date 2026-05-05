@@ -158,20 +158,16 @@ def _build_slots(
 
 
 def _color_imbalance(colors: tuple[int, int, int, int], color_flip: bool) -> float:
-    """Penalise how lopsided each team's color history is once the assignment is fixed.
+    """Penalise each player's projected color imbalance after this game.
 
     `user.color` accumulates +1 per game played as white, -1 as black.
-    Per-slot weight = +1 if this assignment makes them play white, else -1.
-    A balanced team has `sum(color * weight)` near zero — a player who has
-    played mostly white (positive color) ideally lands on a black-weight slot.
+    Per-slot weight is +1 for white and -1 for black.
     """
     weights = [
         1 if pos_to_color(pos, color_flip) == chess.WHITE else -1
         for pos in range(4)
     ]
-    team_a_imbalance = colors[0] * weights[0] + colors[1] * weights[1]
-    team_b_imbalance = colors[2] * weights[2] + colors[3] * weights[3]
-    return abs(team_a_imbalance) + abs(team_b_imbalance)
+    return sum(abs(color + weight) for color, weight in zip(colors, weights))
 
 
 def score(

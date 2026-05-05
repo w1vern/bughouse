@@ -5,6 +5,9 @@ import unittest
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
+import chess
+
+from services.core.game.models import pos_to_color
 from services.core.lobby.manager import LobbyManager
 from services.core.lobby.models import Lobby, LobbyConfig, LobbyState, Seat
 from services.core.queue.errors import (
@@ -261,6 +264,17 @@ class QueueRankerTests(unittest.TestCase):
                 params=ranking_params(),
             )
         )
+
+    def test_find_best_assignment_prefers_colors_that_reduce_player_imbalance(self) -> None:
+        entry = make_entry(["alice", "bob", "carol", "dave"])
+        entry.colors = (1, -1, -1, 1)
+
+        result = find_best_assignment([entry], now=10.0, params=ranking_params())
+
+        self.assertIsNotNone(result)
+        _entries, placement, color_flip = result
+        leader_game_pos = placement[0][0]
+        self.assertEqual(pos_to_color(leader_game_pos, color_flip), chess.BLACK)
 
 
 class QueueManagerTests(unittest.IsolatedAsyncioTestCase):
