@@ -222,8 +222,16 @@ class CoreServiceServicer(core_pb2_grpc.CoreServiceServicer):
         return _ok()
 
     async def SendChat(self, request: pb.ChatReq, context) -> pb.StatusResp:
-        # Game chat is currently disabled in backend.
-        return _err_raw("not_implemented", "game chat is not implemented")
+        username = request.username
+        logger.debug("SendChat request: username=%s", username)
+        if not username:
+            return _err_raw("bad_request", "missing username")
+        try:
+            await self.games.send_chat(username, request.text)
+        except GameError as e:
+            logger.warning("SendChat error: %s/%s", e.code, e.message)
+            return _err(e)
+        return _ok()
 
     # ---------------- Sync ----------------
 

@@ -20,7 +20,7 @@ class UserSessionIndex:
             return SyncData(
                 state="GAME",
                 lobby=lobby_data(lobby) if lobby is not None else None,
-                game=build_bughouse(game),
+                game=build_bughouse(game, viewer_username=username),
             )
         if lobby is not None:
             return SyncData(

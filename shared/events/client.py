@@ -92,7 +92,7 @@ class GameMoveMsg(CamelModel):
 
 class GameChatSendMsg(CamelModel):
     type: Literal[_GAME_CHAT_SEND] = _GAME_CHAT_SEND  # type: ignore[valid-type]
-    data: str
+    data: str = Field(min_length=1, max_length=1000)
 
 
 class GameResignMsg(CamelModel):

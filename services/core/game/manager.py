@@ -12,6 +12,7 @@ import trueskill
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.database import GameRepository, User, UserRepository
+from shared.events import GameChatData
 from shared.infrastructure import RankingParams, setup_logger
 
 from ..lobby.models import Lobby, LobbyConfig, Seat
@@ -20,6 +21,7 @@ from .board import BughouseBoards
 from .clocks import Clocks, FlagCallback
 from .errors import GameError
 from .models import (
+    ChatRecord,
     EndReason,
     GameObj,
     GameResult,
@@ -47,6 +49,10 @@ def _board_move_count(game: GameObj, board_idx: int) -> int:
     return sum(1 for move in game.moves if move.board == board_idx)
 
 
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
 class GameManager:
     def __init__(
         self,
@@ -62,7 +68,7 @@ class GameManager:
         self._session_factory = session_factory
         self._ranking = ranking
         self._abort_timeout = abort_timeout
-        self._abort_tasks: dict[UUID, asyncio.Task[None]] = {}
+        self._abort_tasks: dict[tuple[UUID, int], asyncio.Task[None]] = {}
         self._lobby_mgr: _LobbyManagerProto | None = lobby_mgr
         self._ts = trueskill.TrueSkill(
             mu=ranking.mu,
@@ -121,6 +127,7 @@ class GameManager:
             clocks=Clocks(config.clock_time),
             config=config,
             color_flip=color_flip,
+            auto_abort_timeout=int(self._abort_timeout),
             started_at=time.monotonic(),
         )
         self._games[game.id] = game
@@ -128,11 +135,10 @@ class GameManager:
             self._user_to_game[p.username] = game.id
             await self._notifier.mark_busy(p.username)
 
-        await self._notifier.publish_game_start(game.usernames, build_bughouse(game))
+        for board_idx in (0, 1):
+            self._arm_auto_abort(game, board_idx)
 
-        self._abort_tasks[game.id] = asyncio.create_task(
-            self._abort_watchdog(game.id)
-        )
+        await self._notifier.publish_game_start(game.usernames, build_bughouse(game))
 
         return game.id
 
@@ -175,9 +181,10 @@ class GameManager:
             )
         )
 
-        abort = self._abort_tasks.pop(game.id, None)
-        if abort is not None:
-            abort.cancel()
+        if board_moves_before == 0:
+            self._arm_auto_abort(game, board_idx)
+        elif board_moves_before == 1:
+            self._clear_auto_abort(game, board_idx)
 
         if game.boards.is_checkmate(board_idx):
             loser_color = game.boards.turn(board_idx)
@@ -198,6 +205,43 @@ class GameManager:
             await game.clocks.start(board_idx, next_color, self._make_flag_cb(game.id))
 
         await self._publish_move(game, board_idx, uci, exclude=username)
+
+    async def send_chat(self, username: str, text: str) -> None:
+        game = self.get_game_by_user(username)
+        if game is None:
+            raise GameError.not_found()
+        if game.finished:
+            raise GameError.already_finished()
+        try:
+            pos = game.pos_of(username)
+        except KeyError as exc:
+            raise GameError.not_in_this_game() from exc
+
+        message_text = text.strip()
+        if not message_text:
+            raise GameError.bad_chat_message()
+        if len(message_text) > 1000:
+            raise GameError.bad_chat_message()
+
+        team = team_of_pos(pos)
+        history = game.chat[team]
+        record = ChatRecord(
+            idx=len(history),
+            username=username,
+            text=message_text,
+            created_at=_now_ms(),
+        )
+        history.append(record)
+
+        await self._notifier.publish_game_chat(
+            game.partner_of(username),
+            GameChatData(
+                idx=record.idx,
+                username=record.username,
+                text=record.text,
+                created_at=record.created_at,
+            ),
+        )
 
     async def resign(self, username: str) -> None:
         game = self.get_game_by_user(username)
@@ -248,6 +292,7 @@ class GameManager:
             uci,
             white_clock_time,
             black_clock_time,
+            game.auto_abort_at.get(board_idx),
             exclude=exclude,
         )
 
@@ -257,16 +302,41 @@ class GameManager:
 
         return cb
 
-    async def _abort_watchdog(self, game_id: UUID) -> None:
+    def _arm_auto_abort(self, game: GameObj, board_idx: int) -> None:
+        self._clear_auto_abort(game, board_idx)
+        deadline = _now_ms() + int(self._abort_timeout)
+        game.auto_abort_at[board_idx] = deadline
+        self._abort_tasks[(game.id, board_idx)] = asyncio.create_task(
+            self._abort_watchdog(game.id, board_idx, deadline)
+        )
+
+    def _clear_auto_abort(self, game: GameObj, board_idx: int) -> None:
+        game.auto_abort_at[board_idx] = None
+        task = self._abort_tasks.pop((game.id, board_idx), None)
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+
+    def _clear_all_auto_aborts(self, game: GameObj) -> None:
+        for board_idx in (0, 1):
+            self._clear_auto_abort(game, board_idx)
+
+    async def _abort_watchdog(
+        self,
+        game_id: UUID,
+        board_idx: int,
+        deadline: int,
+    ) -> None:
         try:
             await asyncio.sleep(self._abort_timeout / 1000)
         except asyncio.CancelledError:
             return
         game = self._games.get(game_id)
-        if game is None or game.finished or game.moves:
+        if game is None or game.finished:
+            return
+        if game.auto_abort_at.get(board_idx) != deadline:
             return
         try:
-            await self._finish(game, GameResult.ABORT, EndReason.ABORT_NO_MOVES)
+            await self._finish(game, GameResult.ABORT, EndReason.AUTO_ABORT)
         except Exception:
             logger.exception("abort finish failed for game %s", game_id)
 
@@ -286,9 +356,7 @@ class GameManager:
 
         self._detach_game(game)
 
-        abort = self._abort_tasks.pop(game.id, None)
-        if abort is not None and abort is not asyncio.current_task():
-            abort.cancel()
+        self._clear_all_auto_aborts(game)
 
         try:
             await game.clocks.shutdown()

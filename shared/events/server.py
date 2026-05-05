@@ -8,6 +8,7 @@ from .common import (
     BughouseData,
     CamelModel,
     ErrorData,
+    GameChatData,
     GameEndData,
     GameMoveServerData,
     InviteData,
@@ -106,7 +107,7 @@ class GameMoveReceiveMsg(CamelModel):
 
 class GameChatReceiveMsg(CamelModel):
     type: Literal[_GAME_CHAT_RECEIVE] = _GAME_CHAT_RECEIVE  # type: ignore[valid-type]
-    data: str
+    data: GameChatData
 
 
 class GameEndMsg(CamelModel):

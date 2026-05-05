@@ -129,16 +129,26 @@ class PlayerData(CamelModel):
     clock_time: int = Field(ge=0)
 
 
+class GameChatData(CamelModel):
+    idx: int = Field(ge=0)
+    username: str
+    text: str = Field(min_length=1, max_length=1000)
+    created_at: int = Field(ge=0)
+
+
 class BoardData(CamelModel):
     fen: str
     players: tuple[PlayerData, PlayerData]
     last_move: tuple[str, str] | tuple[str] | None = None
+    auto_abort_at: int | None = Field(default=None, ge=0)
 
 
 class BughouseData(CamelModel):
     boards: tuple[BoardData, BoardData]
     incr: int = Field(ge=0)
+    auto_abort_timeout: int = Field(ge=0)
     status: GameStatus | None = None
+    chat: list[GameChatData] = Field(default_factory=list)
 
 
 class GameMoveData(CamelModel):
@@ -151,6 +161,7 @@ class GameMoveServerData(CamelModel):
     move: str
     white_clock_time: int = Field(ge=0)
     black_clock_time: int = Field(ge=0)
+    auto_abort_at: int | None = Field(default=None, ge=0)
 
 
 class GameEndData(CamelModel):

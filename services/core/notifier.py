@@ -12,6 +12,8 @@ from shared.events import (
     ClocksData,
     ErrorData,
     ErrorMsg,
+    GameChatData,
+    GameChatReceiveMsg,
     GameEndData,
     GameEndMsg,
     GameJoinMsg,
@@ -244,6 +246,7 @@ class Notifier:
         uci: str,
         white_clock_time: int,
         black_clock_time: int,
+        auto_abort_at: int | None,
         *,
         exclude: str | None = None,
     ) -> None:
@@ -253,9 +256,13 @@ class Notifier:
                 move=uci,
                 white_clock_time=white_clock_time,
                 black_clock_time=black_clock_time,
+                auto_abort_at=auto_abort_at,
             )
         )
         await self._fanout(usernames, msg, exclude=exclude)
+
+    async def publish_game_chat(self, username: str, message: GameChatData) -> None:
+        await self._send(username, GameChatReceiveMsg(data=message))
 
     async def publish_game_end(
         self,

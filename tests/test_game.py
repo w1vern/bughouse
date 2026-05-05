@@ -29,7 +29,7 @@ from services.core.game.models import (
 )
 from services.core.lobby.models import Lobby, LobbyConfig, LobbyState, Seat
 from services.core.session import UserSessionIndex
-from shared.events import BughouseData
+from shared.events import BughouseData, GameChatData
 from shared.infrastructure import RankingParams
 
 
@@ -109,7 +109,8 @@ class FakeNotifier:
         self.busy: list[str] = []
         self.idle: list[str] = []
         self.game_starts: list[tuple[list[str], BughouseData]] = []
-        self.moves: list[tuple[list[str], int, str, int, int]] = []
+        self.moves: list[tuple[list[str], int, str, int, int, int | None]] = []
+        self.chats: list[tuple[str, GameChatData]] = []
         self.game_ends: list[tuple[list[str], str, dict[str, float]]] = []
         self.back_to_lobby: list[tuple[str, object]] = []
         self.back_to_idle: list[str] = []
@@ -131,11 +132,17 @@ class FakeNotifier:
         uci: str,
         white_clock_time: int,
         black_clock_time: int,
+        auto_abort_at: int | None,
         *,
         exclude: str | None = None,
     ) -> None:
         recipients = [u for u in usernames if u != exclude]
-        self.moves.append((recipients, idx, uci, white_clock_time, black_clock_time))
+        self.moves.append(
+            (recipients, idx, uci, white_clock_time, black_clock_time, auto_abort_at)
+        )
+
+    async def publish_game_chat(self, username: str, message: GameChatData) -> None:
+        self.chats.append((username, message))
 
     async def publish_game_end(
         self,
@@ -316,6 +323,10 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bughouse.boards[1].players[0].name, "dave")
         self.assertEqual(bughouse.boards[1].players[1].name, "bob")
         self.assertEqual(bughouse.incr, 1_000)
+        self.assertEqual(bughouse.auto_abort_timeout, 999_000)
+        self.assertIsNotNone(bughouse.boards[0].auto_abort_at)
+        self.assertIsNotNone(bughouse.boards[1].auto_abort_at)
+        self.assertEqual(bughouse.chat, [])
         self.assertNotIn('"pocket"', bughouse.model_dump_json(by_alias=True))
         self.assertIs(self.manager.get_game_by_user("carol"), game)
 
@@ -335,13 +346,23 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         # On board 0 it is now black's turn — that is carol (pos 2), not bob.
         self.assertTrue(game.is_turn_of("carol"))
         self.assertFalse(game.is_turn_of("bob"))
-        self.assertNotIn(game_id, self.manager._abort_tasks)
+        self.assertIn((game_id, 0), self.manager._abort_tasks)
+        self.assertIn((game_id, 1), self.manager._abort_tasks)
         self.assertEqual(len(self.notifier.moves), 1)
-        usernames, board_idx, uci, white_clock_time, black_clock_time = self.notifier.moves[0]
+        (
+            usernames,
+            board_idx,
+            uci,
+            white_clock_time,
+            black_clock_time,
+            auto_abort_at,
+        ) = self.notifier.moves[0]
         self.assertEqual(usernames, ["bob", "carol", "dave"])
         self.assertEqual((board_idx, uci), (0, "e2e4"))
         self.assertEqual(white_clock_time, 60_000)
         self.assertEqual(black_clock_time, 60_000)
+        self.assertEqual(auto_abort_at, game.auto_abort_at[0])
+        self.assertIsNotNone(auto_abort_at)
         self.assertEqual(game.clocks._active, {})
 
     async def test_clock_starts_after_both_players_made_first_board_moves(self) -> None:
@@ -365,6 +386,8 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(active)
         assert active is not None
         self.assertEqual(active[0], chess.WHITE)
+        self.assertIsNone(game.auto_abort_at[0])
+        self.assertIsNotNone(game.auto_abort_at[1])
 
         await asyncio.sleep(0.02)
         snap = game.clocks.snapshot()
@@ -384,6 +407,62 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
             await self.manager.make_move("alice", "e2e5")
         self.assertEqual(move_error.exception.code, ERR_ILLEGAL_MOVE)
         self.assertEqual(self.notifier.moves, [])
+
+    async def test_chat_goes_only_to_teammate_and_sync_history_is_private(self) -> None:
+        await self.create_game()
+
+        await self.manager.send_chat("alice", " hold knight ")
+
+        self.assertEqual(len(self.notifier.chats), 1)
+        recipient, message = self.notifier.chats[0]
+        self.assertEqual(recipient, "bob")
+        self.assertEqual(message.idx, 0)
+        self.assertEqual(message.username, "alice")
+        self.assertEqual(message.text, "hold knight")
+        self.assertGreater(message.created_at, 0)
+
+        sessions = UserSessionIndex(
+            lobbies=SimpleNamespace(get_by_user=lambda _username: None),  # type: ignore[arg-type]
+            games=self.manager,
+        )
+        alice_sync = sessions.get_sync("alice")
+        bob_sync = sessions.get_sync("bob")
+        carol_sync = sessions.get_sync("carol")
+        self.assertIsNotNone(alice_sync.game)
+        self.assertIsNotNone(bob_sync.game)
+        self.assertIsNotNone(carol_sync.game)
+        assert alice_sync.game is not None
+        assert bob_sync.game is not None
+        assert carol_sync.game is not None
+        self.assertEqual(alice_sync.game.chat, [message])
+        self.assertEqual(bob_sync.game.chat, [message])
+        self.assertEqual(carol_sync.game.chat, [])
+
+    async def test_auto_abort_deadline_is_available_in_sync_during_first_moves(self) -> None:
+        game_id = await self.create_game()
+        game = self.manager._games[game_id]
+
+        await self.manager.make_move("alice", "e2e4")
+
+        sessions = UserSessionIndex(
+            lobbies=SimpleNamespace(get_by_user=lambda _username: None),  # type: ignore[arg-type]
+            games=self.manager,
+        )
+        sync = sessions.get_sync("bob")
+        self.assertIsNotNone(sync.game)
+        assert sync.game is not None
+        self.assertEqual(sync.game.boards[0].auto_abort_at, game.auto_abort_at[0])
+        self.assertEqual(sync.game.boards[1].auto_abort_at, game.auto_abort_at[1])
+        self.assertIsNotNone(sync.game.boards[0].auto_abort_at)
+        self.assertIsNotNone(sync.game.boards[1].auto_abort_at)
+
+        await self.manager.make_move("carol", "e7e5")
+
+        sync_after_black = sessions.get_sync("bob")
+        self.assertIsNotNone(sync_after_black.game)
+        assert sync_after_black.game is not None
+        self.assertIsNone(sync_after_black.game.boards[0].auto_abort_at)
+        self.assertIsNotNone(sync_after_black.game.boards[1].auto_abort_at)
 
     async def test_checkmate_finishes_game_persists_moves_and_cleans_users(self) -> None:
         game_id = await self.create_game()
@@ -451,6 +530,18 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         game_id = await self.create_game()
 
         await asyncio.sleep(0.05)
+
+        self.assertNotIn(game_id, self.manager._games)
+        self.assertEqual(self.notifier.game_ends[0][1], "Abort")
+        self.assertEqual(self.session_factory.created_games[0]["result"], GameResult.ABORT.value)
+
+    async def test_abort_watchdog_finishes_if_black_does_not_reply(self) -> None:
+        self.manager._abort_timeout = 20.0
+        game_id = await self.create_game()
+
+        await self.manager.make_move("alice", "e2e4")
+        await self.manager.make_move("dave", "d2d4")
+        await asyncio.sleep(0.06)
 
         self.assertNotIn(game_id, self.manager._games)
         self.assertEqual(self.notifier.game_ends[0][1], "Abort")

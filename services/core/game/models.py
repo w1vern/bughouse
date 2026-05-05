@@ -23,6 +23,7 @@ class EndReason(Enum):
     TIMEOUT = "timeout"
     RESIGN = "resign"
     DRAW_RULE = "draw_rule"
+    AUTO_ABORT = "auto_abort"
     ABORT_NO_MOVES = "abort_no_moves"
 
 
@@ -95,6 +96,25 @@ class MoveRecord:
 
 
 @dataclass(slots=True)
+class ChatRecord:
+    idx: int
+    username: str
+    text: str
+    created_at: int
+
+
+def _empty_chat() -> dict[GameResult, list[ChatRecord]]:
+    return {
+        GameResult.TEAM_A: [],
+        GameResult.TEAM_B: [],
+    }
+
+
+def _empty_auto_abort_at() -> dict[int, int | None]:
+    return {0: None, 1: None}
+
+
+@dataclass(slots=True)
 class GameObj:
     id: UUID
     players: tuple[PlayerRef, PlayerRef, PlayerRef, PlayerRef]
@@ -102,12 +122,15 @@ class GameObj:
     clocks: Clocks
     config: LobbyConfig
     color_flip: bool = False
+    auto_abort_timeout: int = 0
     moves: list[MoveRecord] = field(default_factory=list)
     started_at: float = 0.0
     ended_at: float | None = None
     result: GameResult | None = None
     reason: EndReason | None = None
     finished: bool = False
+    chat: dict[GameResult, list[ChatRecord]] = field(default_factory=_empty_chat)
+    auto_abort_at: dict[int, int | None] = field(default_factory=_empty_auto_abort_at)
 
     @property
     def usernames(self) -> list[str]:

@@ -7,6 +7,7 @@ ERR_NOT_IN_THIS_GAME = "not_in_this_game"
 ERR_NOT_YOUR_TURN = "not_your_turn"
 ERR_ILLEGAL_MOVE = "illegal_move"
 ERR_GAME_ALREADY_FINISHED = "game_already_finished"
+ERR_BAD_CHAT_MESSAGE = "bad_chat_message"
 
 
 class GameError(_BaseGameError):
@@ -35,3 +36,7 @@ class GameError(_BaseGameError):
     @classmethod
     def already_finished(cls) -> "GameError":
         return cls(ERR_GAME_ALREADY_FINISHED, "Game is already finished")
+
+    @classmethod
+    def bad_chat_message(cls) -> "GameError":
+        return cls(ERR_BAD_CHAT_MESSAGE, "Bad chat message")
