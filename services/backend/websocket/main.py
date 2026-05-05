@@ -16,12 +16,12 @@ from shared.events import (
     dump,
 )
 from shared.infrastructure import setup_logger
-from shared.protobuf import core_pb2, core_pb2_grpc
+from shared.protobuf import core_pb2
 
 from ..depends import get_db_user
 from ..redis import RedisType, get_redis_client
 from .dispatcher import dispatch
-from .grpc_client import get_core_stub
+from .grpc_client import AsyncCoreServiceStub, get_core_stub
 
 logger = setup_logger(__name__)
 
@@ -69,7 +69,7 @@ async def _refresh_lock_loop(redis: Redis, key: str, conn_uuid: str) -> None:
 
 
 async def _send_initial_sync(
-    stub: core_pb2_grpc.CoreServiceStub,
+    stub: AsyncCoreServiceStub,
     user: User,
     websocket: WebSocket,
     redis: Redis,
@@ -134,7 +134,7 @@ async def _pubsub_loop(redis: Redis, user: User, websocket: WebSocket) -> None:
 
 
 async def _client_loop(
-    stub: core_pb2_grpc.CoreServiceStub,
+    stub: AsyncCoreServiceStub,
     user: User,
     websocket: WebSocket,
 ) -> None:
@@ -149,7 +149,7 @@ async def websocket_endpoint(
     websocket: WebSocket,
     user: User = Depends(get_db_user),
     redis: Redis = Depends(get_redis_client),
-    stub: core_pb2_grpc.CoreServiceStub = Depends(get_core_stub),
+    stub: AsyncCoreServiceStub = Depends(get_core_stub),
 ) -> None:
     await websocket.accept()
     logger.debug("ws connected: %s", user.username)

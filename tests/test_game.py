@@ -347,6 +347,7 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
 
         game = self.manager._games[game_id]
         self.assertEqual([p.username for p in game.players], list(PLAYER_NAMES))
+        self.assertEqual(self.manager.active_games_count, 1)
         self.assertEqual(self.notifier.busy, list(PLAYER_NAMES))
         self.assertEqual(len(self.notifier.game_starts), 1)
         usernames, bughouse = self.notifier.game_starts[0]

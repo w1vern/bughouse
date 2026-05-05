@@ -1,4 +1,8 @@
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, cast
+
 from grpc import aio
 
 from shared.infrastructure import env_config, setup_logger
@@ -7,7 +11,13 @@ from shared.protobuf import core_pb2_grpc
 logger = setup_logger(__name__)
 
 _channel: aio.Channel | None = None
-_stub: core_pb2_grpc.CoreServiceStub | None = None
+
+if TYPE_CHECKING:
+    from shared.protobuf.core_pb2_grpc import CoreServiceAsyncStub as AsyncCoreServiceStub
+else:
+    AsyncCoreServiceStub = core_pb2_grpc.CoreServiceStub
+
+_stub: AsyncCoreServiceStub | None = None
 
 
 async def init_grpc_channel() -> None:
@@ -17,7 +27,7 @@ async def init_grpc_channel() -> None:
         target,
         options=[("grpc.enable_http_proxy", 0)],
         )
-    _stub = core_pb2_grpc.CoreServiceStub(_channel)
+    _stub = cast(AsyncCoreServiceStub, core_pb2_grpc.CoreServiceStub(_channel))
     logger.info("gRPC channel to core opened: %s", target)
 
 
@@ -30,7 +40,7 @@ async def close_grpc_channel() -> None:
     _stub = None
 
 
-def get_core_stub() -> core_pb2_grpc.CoreServiceStub:
+def get_core_stub() -> AsyncCoreServiceStub:
     if _stub is None:
         raise RuntimeError("gRPC channel is not initialized")
     return _stub

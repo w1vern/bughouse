@@ -35,11 +35,11 @@ from shared.events import (
 )
 from shared.infrastructure import setup_logger
 from shared.protobuf import core_pb2 as pb
-from shared.protobuf import core_pb2_grpc
+from .grpc_client import AsyncCoreServiceStub
 
 logger = setup_logger(__name__)
 
-Stub = core_pb2_grpc.CoreServiceStub
+Stub = AsyncCoreServiceStub
 Handler = Callable[[Stub, User, Any], Awaitable[CamelModel | None]]
 
 

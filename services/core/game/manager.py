@@ -87,6 +87,10 @@ class GameManager:
             return None
         return self._games.get(game_id)
 
+    @property
+    def active_games_count(self) -> int:
+        return len(self._games)
+
     async def create_game(
         self,
         seats: tuple[Seat, Seat, Seat, Seat],

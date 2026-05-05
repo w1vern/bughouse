@@ -312,6 +312,8 @@ class QueueManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entry.avg_sigma, 7.0)
         self.assertEqual(entry.sigmas, (7.0, None, None, None))
         self.assertEqual(entry.colors, (-3, None, None, None))
+        self.assertEqual(self.manager.queued_lobbies_count, 1)
+        self.assertEqual(self.manager.queued_players_count, 1)
         self.assertEqual(self.lobby_mgr.in_queue, [lobby.id])
         self.assertEqual(self.notifier.started, [lobby.id])
 
@@ -372,6 +374,8 @@ class QueueManagerTests(unittest.IsolatedAsyncioTestCase):
         await self.manager.cancel(lobby.id)
 
         self.assertIsNone(self.manager.get(lobby.id))
+        self.assertEqual(self.manager.queued_lobbies_count, 0)
+        self.assertEqual(self.manager.queued_players_count, 0)
         self.assertEqual(self.lobby_mgr.idle, [lobby.id])
         self.assertEqual(self.notifier.cancelled, [lobby.id])
 

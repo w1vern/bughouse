@@ -65,6 +65,14 @@ class QueueManager:
     def get(self, lobby_id: UUID) -> QueueEntry | None:
         return self._entries.get(lobby_id)
 
+    @property
+    def queued_lobbies_count(self) -> int:
+        return len(self._entries)
+
+    @property
+    def queued_players_count(self) -> int:
+        return sum(entry.size for entry in self._entries.values())
+
     async def enqueue(self, lobby: Lobby) -> None:
         if lobby.id in self._entries:
             raise QueueError.already_in_queue()

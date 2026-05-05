@@ -141,6 +141,26 @@ class Notifier:
         except Exception:
             logger.exception("active_player SADD failed for %s", username)
 
+    async def count_available_players(self) -> int:
+        try:
+            return int(await self._redis.scard(ACTIVE_SET_KEY))
+        except Exception:
+            logger.exception("active_player SCARD failed")
+            return 0
+
+    async def count_online_users(self) -> int:
+        count = 0
+        try:
+            async for _ in self._redis.scan_iter(
+                match=f"{ONLINE_KEY_PREFIX}*",
+                count=100,
+            ):
+                count += 1
+        except Exception:
+            logger.exception("ws:online SCAN failed")
+            return 0
+        return count
+
     async def _fanout(
         self,
         usernames: Iterable[str],

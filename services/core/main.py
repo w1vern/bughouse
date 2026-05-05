@@ -243,6 +243,21 @@ class CoreServiceServicer(core_pb2_grpc.CoreServiceServicer):
         sync = self.sessions.get_sync(username)
         return pb.SnapshotResp(ok=True, sync_json=_dump_sync(sync))
 
+    # ---------------- Stats ----------------
+
+    async def GetStats(self, request: pb.StatsReq, context) -> pb.StatsResp:
+        logger.debug("GetStats request")
+        online_users = await self.notifier.count_online_users()
+        available_players = await self.notifier.count_available_players()
+        return pb.StatsResp(
+            ok=True,
+            online_users=online_users,
+            available_players=available_players,
+            queued_players=self.queue.queued_players_count,
+            queued_lobbies=self.queue.queued_lobbies_count,
+            active_games=self.games.active_games_count,
+        )
+
 
 def _dump_sync(sync: SyncData) -> str:
     return sync.model_dump_json(by_alias=True)

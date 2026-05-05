@@ -22,6 +22,9 @@ service CoreService {
 
   // Sync — returns the full SYNC payload (WsSyncData) as JSON
   rpc GetUserSnapshot(UserRef)      returns (SnapshotResp);
+
+  // Stats
+  rpc GetStats(StatsReq)            returns (StatsResp);
 }
 
 // ---------- Refs / requests ----------
@@ -48,6 +51,7 @@ message ChatReq          { string username = 1; string text = 2; }
 message SendInviteReq    { string sender = 1; string receiver = 2; int32 idx = 3; }
 message AcceptInviteReq  { string receiver = 1; string sender = 2; }
 message RejectInviteReq  { string receiver = 1; string sender = 2; }
+message StatsReq         {}
 
 // ---------- Responses ----------
 message StatusResp {
@@ -62,4 +66,15 @@ message SnapshotResp {
   string message       = 3;
   // JSON-serialized WsSyncData ({state, lobby?, game?}); empty if !ok.
   string sync_json     = 4;
+}
+
+message StatsResp {
+  bool   ok                = 1;
+  string error_code        = 2;
+  string message           = 3;
+  int32  online_users      = 4;
+  int32  available_players = 5;
+  int32  queued_players    = 6;
+  int32  queued_lobbies    = 7;
+  int32  active_games      = 8;
 }
