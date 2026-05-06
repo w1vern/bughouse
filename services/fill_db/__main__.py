@@ -66,10 +66,10 @@ async def main() -> None:
                 sigma=env_config.ranking.sigma,
                 color=0
             )
-        params = await rpr.get_all()
-        if len(params) == 0:
-            for param in default_ranking_params:
-                await rpr.create(name=param[0], value=param[1])
+    for name, value in default_ranking_params:
+        existing = await rpr.get_by_name(name)
+        if existing is None:
+            await rpr.create(name=name, value=value)
 
     logger.info("database is filled")
 
