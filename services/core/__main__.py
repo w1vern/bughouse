@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import signal
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 
 from grpc import aio
 
@@ -29,7 +29,7 @@ logger = setup_logger(__name__)
 
 
 @contextlib.asynccontextmanager
-async def _user_repo_ctx() -> AsyncIterator[UserRepository]:
+async def _user_repo_ctx() -> AsyncGenerator[UserRepository]:
     async with session_manager.context_session() as session:
         yield UserRepository(session)
 
@@ -51,7 +51,7 @@ async def main() -> None:
         game_mgr=game_mgr,
         notifier=notifier,
         user_repo_factory=_user_repo_ctx,
-        tick=env_config.core.queue_tick,
+        tick=Config.queue_tick,
         ranking=env_config.ranking,
     )
     sessions = UserSessionIndex(lobby_mgr, game_mgr)

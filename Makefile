@@ -56,3 +56,9 @@ staging:
 	git merge dev && \
 	git push && \
 	git checkout dev
+
+main: 
+	git checkout main && \
+	git merge dev && \
+	git push && \
+	git checkout dev

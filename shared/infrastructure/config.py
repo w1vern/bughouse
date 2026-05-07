@@ -72,7 +72,6 @@ class CoreSettings(BaseModel):
 
     host: str = "core"
     port: int = 50051
-    queue_tick: float = 2_000.0
 
 
 class Settings(BaseSettings):
