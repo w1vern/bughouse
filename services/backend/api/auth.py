@@ -99,7 +99,7 @@ async def logout_all(
     auth_service: AuthService = Depends(AuthService.depends)
 ) -> SuccessResponse:
     response = SuccessResponse()
-    await auth_service.logout(user)
+    await auth_service.logout_all(user)
     response.delete_cookie(
         key="refresh_token",
         path="/api/auth/refresh"

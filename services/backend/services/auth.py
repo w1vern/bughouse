@@ -56,8 +56,6 @@ class AuthService:
     ) -> tuple[str, str]:
         user = await self.ur.get_by_auth(login_schema.email, login_schema.password)
         if user is None:
-            await self.redis.set(f"{RedisType.incorrect_credentials.value}:{login_schema.email}", 0,
-                                 ex=Config.login_gap)
             raise UserNotFoundException()
 
         access = AccessToken(user=user).to_token()
@@ -85,8 +83,9 @@ class AuthService:
         access = AccessToken(user, now).to_token()
         return access
 
-    async def logout(
+    async def logout_all(
         self,
         user: User
     ) -> None:
+        await self.redis.set(f"{RedisType.invalidated_access_token.value}:{user.id}", 1)
         await self.ur.update_secret(user)
