@@ -3,10 +3,10 @@ import asyncio
 from uuid import uuid4
 
 import grpc
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Cookie, Depends, WebSocket, WebSocketDisconnect
 from redis.asyncio import Redis
 
-from shared.database import User
+from shared.database import User, UserRepository, session_manager
 from shared.events import (
     CamelModel,
     ErrorData,
@@ -18,7 +18,8 @@ from shared.events import (
 from shared.infrastructure import setup_logger
 from shared.protobuf import core_pb2
 
-from ..depends import get_db_user
+from ..depends import get_user
+from ..exceptions import SendFeedbackToAdminException
 from ..redis import RedisType, get_redis_client
 from .dispatcher import dispatch
 from .grpc_client import AsyncCoreServiceStub, get_core_stub
@@ -144,10 +145,23 @@ async def _client_loop(
             await _send(websocket, reply)
 
 
+async def get_ws_db_user(
+    access_token: str | None = Cookie(default=None),
+    redis: Redis = Depends(get_redis_client),
+) -> User:
+    token_user = await get_user(access_token=access_token, redis=redis)
+    async with session_manager.context_session() as session:
+        repo = UserRepository(session)
+        user_db = await repo.get_by_id(token_user.id)
+    if user_db is None:
+        raise SendFeedbackToAdminException()
+    return user_db
+
+
 @router.websocket(path="")
 async def websocket_endpoint(
     websocket: WebSocket,
-    user: User = Depends(get_db_user),
+    user: User = Depends(get_ws_db_user),
     redis: Redis = Depends(get_redis_client),
     stub: AsyncCoreServiceStub = Depends(get_core_stub),
 ) -> None:

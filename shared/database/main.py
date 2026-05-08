@@ -57,7 +57,7 @@ class DatabaseSessionManager:
             await session.close()
 
     @contextlib.asynccontextmanager
-    async def context_session(self) -> AsyncIterator[AsyncSession]:
+    async def context_session(self) -> AsyncGenerator[AsyncSession]:
         async for session in self.session():
             yield session
 

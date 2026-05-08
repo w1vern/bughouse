@@ -56,7 +56,8 @@ class CoreStatsTests(unittest.IsolatedAsyncioTestCase):
 class BackendStatsServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_get_maps_core_stats_response_to_schema(self) -> None:
         stub = FakeStatsStub()
-        service = StatsService(stub)  # type: ignore[arg-type]
+        user_schema = SimpleNamespace(username="alice")
+        service = StatsService(user_schema, stub)  # type: ignore[arg-type]
 
         stats = await service.get()
 
