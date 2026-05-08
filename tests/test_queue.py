@@ -284,10 +284,108 @@ class QueueRankerTests(unittest.TestCase):
         leader_game_pos = placement[0][0]
         self.assertEqual(pos_to_color(leader_game_pos, color_flip), chess.BLACK)
 
+    def test_bounded_assignment_prioritizes_oldest_anchor(self) -> None:
+        entries = [
+            make_entry(
+                [f"player_{idx}", None, None, None],
+                enqueued_at=1.0,
+            )
+            for idx in range(100)
+        ]
+        oldest = make_entry(["oldest", None, None, None], enqueued_at=0.0)
+        group = [oldest, *entries]
+
+        result = find_best_assignment(
+            group,
+            now=10.0,
+            params=ranking_params(),
+            exact_entry_limit=1,
+            nearest_candidate_limit=12,
+        )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        chosen, _placement, _flip = result
+        self.assertIn(oldest.lobby_id, [entry.lobby_id for entry in chosen])
+
+    def test_bounded_assignment_keeps_two_pair_matches(self) -> None:
+        first = make_entry(["alice", "bob", None, None])
+        second = make_entry([None, None, "carol", "dave"])
+
+        result = find_best_assignment(
+            [first, second],
+            now=10.0,
+            params=ranking_params(),
+            exact_entry_limit=1,
+        )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        chosen, placement, _flip = result
+        self.assertEqual(
+            {entry.lobby_id for entry in chosen},
+            {first.lobby_id, second.lobby_id},
+        )
+        self.assertEqual(_placement_game_positions(placement), [0, 1, 2, 3])
+
+    def test_bounded_assignment_prefers_three_plus_one_before_solos(self) -> None:
+        solo = make_entry(["solo", None, None, None], enqueued_at=0.0)
+        trio = make_entry(["a", "b", "c", None], enqueued_at=1.0)
+        extra_solos = [
+            make_entry([name, None, None, None], enqueued_at=1.0)
+            for name in ("d", "e", "f")
+        ]
+
+        result = find_best_assignment(
+            [solo, trio, *extra_solos],
+            now=10.0,
+            params=ranking_params(),
+            exact_entry_limit=1,
+        )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        chosen, _placement, _flip = result
+        self.assertEqual(
+            {entry.lobby_id for entry in chosen},
+            {solo.lobby_id, trio.lobby_id},
+        )
+
+    def test_bounded_assignment_prefers_pair_plus_two_solos_before_solos(self) -> None:
+        solo = make_entry(["solo", None, None, None], enqueued_at=0.0)
+        pair = make_entry(["a", "b", None, None], enqueued_at=1.0)
+        extra_solos = [
+            make_entry([name, None, None, None], enqueued_at=1.0)
+            for name in ("c", "d", "e")
+        ]
+
+        result = find_best_assignment(
+            [solo, pair, *extra_solos],
+            now=10.0,
+            params=ranking_params(),
+            exact_entry_limit=1,
+        )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        chosen, _placement, _flip = result
+        self.assertIn(solo.lobby_id, [entry.lobby_id for entry in chosen])
+        self.assertIn(pair.lobby_id, [entry.lobby_id for entry in chosen])
+        self.assertEqual(sum(entry.size for entry in chosen), 4)
+
 
 class QueueManagerTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
-        names = ["alice", "bob", "carol", "dave", "erin", "frank"]
+        names = [
+            "alice",
+            "bob",
+            "carol",
+            "dave",
+            "erin",
+            "frank",
+            "gina",
+            "hank",
+        ]
         self.users = {name: make_user(name) for name in names}
         self.user_repo_factory = FakeUserRepoFactory(self.users)
         self.lobby_mgr = FakeLobbyManager()
@@ -454,6 +552,23 @@ class QueueManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.game_mgr.created, [])
         self.assertIsNotNone(self.manager.get(first.id))
         self.assertIsNotNone(self.manager.get(second.id))
+
+    async def test_tick_starts_complete_lobbies_before_config_grouping(self) -> None:
+        fast = LobbyConfig(clock_time=60_000, incr=1_000, rated=False)
+        slow = LobbyConfig(clock_time=120_000, incr=1_000, rated=True)
+        first = make_lobby(["alice", "bob", "carol", "dave"], config=fast)
+        second = make_lobby(["erin", "frank", "gina", "hank"], config=slow)
+        await self.manager.enqueue(first)
+        await self.manager.enqueue(second)
+
+        await self.manager._do_tick()
+
+        self.assertIsNone(self.manager.get(first.id))
+        self.assertIsNone(self.manager.get(second.id))
+        self.assertEqual(len(self.game_mgr.created), 2)
+        created_configs = [created[1] for created in self.game_mgr.created]
+        self.assertIn(fast, created_configs)
+        self.assertIn(slow, created_configs)
 
     async def test_start_and_stop_loop_are_idempotent(self) -> None:
         self.manager.start_loop()

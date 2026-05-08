@@ -152,12 +152,16 @@ class QueueManager:
                 logger.exception("queue tick failed")
 
     async def _do_tick(self) -> None:
+        now = time.monotonic()
+        await self._fire_complete_lobbies(now)
+
         groups: dict[tuple[bool, int, int], list[QueueEntry]] = defaultdict(list)
         for entry in self._entries.values():
+            if entry.size == 4:
+                continue
             key = (entry.config.rated, entry.config.clock_time, entry.config.incr)
             groups[key].append(entry)
 
-        now = time.monotonic()
         for group in groups.values():
             while len(group) > 0:
                 best = find_best_assignment(group, now, self._ranking)
@@ -167,6 +171,31 @@ class QueueManager:
                 await self._fire(entries_chosen, placement, color_flip)
                 for e in entries_chosen:
                     group.remove(e)
+
+    async def _fire_complete_lobbies(self, now: float) -> None:
+        """Start full 4-player lobbies before grouped matchmaking.
+
+        A complete lobby already has all seats and its own config, so it is
+        never compared with other queued lobbies.  The ranker is called with
+        the single entry only to pick the best topology automorphism and
+        color flip.
+        """
+        complete_entries = sorted(
+            (entry for entry in self._entries.values() if entry.size == 4),
+            key=lambda entry: (entry.enqueued_at, str(entry.lobby_id)),
+        )
+        for entry in complete_entries:
+            if entry.lobby_id not in self._entries:
+                continue
+            best = find_best_assignment([entry], now, self._ranking)
+            if best is None:
+                logger.warning(
+                    "complete queued lobby %s produced no assignment",
+                    entry.lobby_id,
+                )
+                continue
+            entries_chosen, placement, color_flip = best
+            await self._fire(entries_chosen, placement, color_flip)
 
     async def _fire(
         self,

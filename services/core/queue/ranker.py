@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import itertools
 import math
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
+from uuid import UUID
 
 import chess
 import trueskill
@@ -18,6 +19,10 @@ from .models import QueueEntry
 # Placement covers all 4 game positions across all entries.
 EntryMapping = tuple[int, int, int, int]
 Placement = tuple[EntryMapping, ...]
+Assignment = tuple[tuple[QueueEntry, ...], Placement, bool]
+
+EXACT_SEARCH_ENTRY_LIMIT = 24
+NEAREST_CANDIDATES_PER_BUCKET = 24
 
 
 # Automorphisms of the 4-position bughouse topology that preserve
@@ -32,6 +37,19 @@ _AUTOMORPHISMS: tuple[tuple[int, int, int, int], ...] = (
     (1, 0, 3, 2),  # swap within both teams (preserves teammates; swaps same-/cross-board pair labels self-consistently)
     (2, 3, 0, 1),  # swap teams
     (3, 2, 1, 0),  # swap teams + swap within
+)
+
+# Match shape priority for bounded matchmaking.
+#
+# Complete 4-player lobbies are handled by QueueManager before grouped
+# matchmaking.  Inside a config group we prefer preserving larger
+# premade lobbies first, then fall back to fully solo games:
+#   3+1 -> 2+2 -> 2+1+1 -> 1+1+1+1.
+_BOUNDED_PARTITION_PRIORITY: tuple[tuple[int, ...], ...] = (
+    (3, 1),
+    (2, 2),
+    (2, 1, 1),
+    (1, 1, 1, 1),
 )
 
 
@@ -83,6 +101,91 @@ def _iter_partitions(group: list[QueueEntry]) -> Iterator[tuple[QueueEntry, ...]
         if sizes == (1, 1, 1, 1):
             for combo in itertools.combinations(by_size[1], 4):
                 yield combo
+
+
+def _entries_by_size(
+    entries: Iterable[QueueEntry],
+) -> dict[int, list[QueueEntry]]:
+    by_size: dict[int, list[QueueEntry]] = {1: [], 2: [], 3: [], 4: []}
+    for entry in entries:
+        by_size[entry.size].append(entry)
+    return by_size
+
+
+def _nearest_entries(
+    entries: list[QueueEntry],
+    target_mu: float,
+    limit: int,
+    *,
+    exclude: set[UUID],
+) -> tuple[QueueEntry, ...]:
+    candidates = [entry for entry in entries if entry.lobby_id not in exclude]
+    candidates.sort(
+        key=lambda entry: (
+            abs(entry.avg_mu - target_mu),
+            entry.enqueued_at,
+            str(entry.lobby_id),
+        )
+    )
+    return tuple(candidates[:limit])
+
+
+def _iter_completions(
+    anchor: QueueEntry,
+    required_counts: dict[int, int],
+    by_size: dict[int, list[QueueEntry]],
+    nearest_candidate_limit: int,
+) -> Iterator[tuple[QueueEntry, ...]]:
+    combo_groups: list[tuple[tuple[QueueEntry, ...], ...]] = []
+    excluded: set[UUID] = {anchor.lobby_id}
+
+    for size, count in sorted(required_counts.items()):
+        if count == 0:
+            continue
+        pool = _nearest_entries(
+            by_size[size],
+            anchor.avg_mu,
+            nearest_candidate_limit,
+            exclude=excluded,
+        )
+        if len(pool) < count:
+            return
+        combo_groups.append(tuple(itertools.combinations(pool, count)))
+
+    for grouped_choices in itertools.product(*combo_groups):
+        completion: list[QueueEntry] = []
+        for choices in grouped_choices:
+            completion.extend(choices)
+        yield tuple(completion)
+
+
+def _iter_anchor_partitions_for_sizes(
+    anchor: QueueEntry,
+    sizes: tuple[int, ...],
+    by_size: dict[int, list[QueueEntry]],
+    nearest_candidate_limit: int,
+) -> Iterator[tuple[QueueEntry, ...]]:
+    if anchor.size not in sizes:
+        return
+    if sizes == (3, 1) and anchor.config.rated:
+        return
+
+    remaining_sizes = list(sizes)
+    remaining_sizes.remove(anchor.size)
+    required_counts: dict[int, int] = {}
+    for size in remaining_sizes:
+        required_counts[size] = required_counts.get(size, 0) + 1
+
+    for completion in _iter_completions(
+        anchor,
+        required_counts,
+        by_size,
+        nearest_candidate_limit,
+    ):
+        entries = (anchor,) + completion
+        if sizes == (3, 1) and any(entry.config.rated for entry in entries):
+            continue
+        yield entries
 
 
 def _entry_mappings(entry: QueueEntry) -> list[EntryMapping]:
@@ -189,14 +292,14 @@ def score(
     return base + color_penalty - wait_bonus
 
 
-def find_best_assignment(
-    group: list[QueueEntry],
+def _best_scored_assignment(
+    partitions: Iterable[tuple[QueueEntry, ...]],
     now: float,
     params: RankingParams,
-) -> tuple[tuple[QueueEntry, ...], Placement, bool] | None:
-    best: tuple[tuple[QueueEntry, ...], Placement, bool] | None = None
+) -> Assignment | None:
+    best: Assignment | None = None
     best_score = math.inf
-    for entries in _iter_partitions(group):
+    for entries in partitions:
         for placement in _iter_placements(entries):
             for color_flip in (False, True):
                 s = score(entries, placement, color_flip, now, params)
@@ -204,3 +307,70 @@ def find_best_assignment(
                     best_score = s
                     best = (entries, placement, color_flip)
     return best
+
+
+def _find_best_assignment_exact(
+    group: list[QueueEntry],
+    now: float,
+    params: RankingParams,
+) -> Assignment | None:
+    return _best_scored_assignment(_iter_partitions(group), now, params)
+
+
+def _find_best_assignment_bounded(
+    group: list[QueueEntry],
+    now: float,
+    params: RankingParams,
+    nearest_candidate_limit: int,
+) -> Assignment | None:
+    by_size = _entries_by_size(group)
+    anchors = sorted(
+        group,
+        key=lambda entry: (entry.enqueued_at, str(entry.lobby_id)),
+    )
+
+    for anchor in anchors:
+        for sizes in _BOUNDED_PARTITION_PRIORITY:
+            candidates = _iter_anchor_partitions_for_sizes(
+                anchor,
+                sizes,
+                by_size,
+                nearest_candidate_limit,
+            )
+            best = _best_scored_assignment(candidates, now, params)
+            if best is not None:
+                return best
+
+    return None
+
+
+def find_best_assignment(
+    group: list[QueueEntry],
+    now: float,
+    params: RankingParams,
+    *,
+    exact_entry_limit: int = EXACT_SEARCH_ENTRY_LIMIT,
+    nearest_candidate_limit: int = NEAREST_CANDIDATES_PER_BUCKET,
+) -> Assignment | None:
+    """Find the next match for one compatible config group.
+
+    Strategy:
+    - for small groups, keep the exact exhaustive search;
+    - for larger groups, use anchor-first bounded matchmaking:
+      scan oldest lobbies first, try match shapes in the order
+      3+1, 2+2, 2+1+1, 1+1+1+1, and only score the nearest
+      rating neighbours for the chosen anchor.
+
+    This caps the 100-solo burst case without changing the final
+    scoring formula for candidates that are inspected.
+    """
+    if sum(entry.size for entry in group) < 4:
+        return None
+    if len(group) <= exact_entry_limit:
+        return _find_best_assignment_exact(group, now, params)
+    return _find_best_assignment_bounded(
+        group,
+        now,
+        params,
+        nearest_candidate_limit,
+    )

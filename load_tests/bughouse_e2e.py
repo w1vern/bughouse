@@ -898,43 +898,50 @@ class QueueLoadRunner:
         clients: list[WsClient] = []
         setup_started = time.perf_counter()
         try:
-            await self._helper._timed(  # noqa: SLF001
-                "register_and_login", self._helper._register_and_login(users)  # noqa: SLF001
-            )
-            await self._helper._timed(  # noqa: SLF001
-                "http_preflight", self._helper._probe_http_before_game(users)  # noqa: SLF001
-            )
-            clients = await self._helper._timed(  # noqa: SLF001
-                "websocket_connect", self._helper._connect_ws(users)  # noqa: SLF001
-            )
-            sessions = [
-                PlayerSession(user=user, client=client)
-                for user, client in zip(users, clients)
-            ]
-            await self._helper._timed(  # noqa: SLF001
-                "solo_lobbies", self._create_solo_lobbies(sessions)
-            )
-            for session in sessions:
-                self._pool.put_nowait(session)
-            setup_seconds = time.perf_counter() - setup_started
-            print(
-                f"setup users={len(users)} sockets={len(clients)} "
-                f"seconds={setup_seconds:.2f}"
-            )
-            results = await self._run_games()
-            await self._helper._probe_http_after_game(users)  # noqa: SLF001
-            return results
-        except Exception as exc:
-            return [
-                ScenarioResult(
-                    unit_id=-1,
-                    ok=False,
-                    seconds=time.perf_counter() - setup_started,
-                    users=[user.creds.username for user in users],
-                    error=f"setup failed: {exc}",
-                    timings=self._helper.timings,
+            try:
+                await self._helper._timed(  # noqa: SLF001
+                    "register_and_login",
+                    self._helper._register_and_login(users),  # noqa: SLF001
                 )
-            ]
+                await self._helper._timed(  # noqa: SLF001
+                    "http_preflight",
+                    self._helper._probe_http_before_game(users),  # noqa: SLF001
+                )
+                clients = await self._helper._timed(  # noqa: SLF001
+                    "websocket_connect",
+                    self._helper._connect_ws(users),  # noqa: SLF001
+                )
+                sessions = [
+                    PlayerSession(user=user, client=client)
+                    for user, client in zip(users, clients)
+                ]
+                await self._helper._timed(  # noqa: SLF001
+                    "solo_lobbies", self._create_solo_lobbies(sessions)
+                )
+                for session in sessions:
+                    self._pool.put_nowait(session)
+                setup_seconds = time.perf_counter() - setup_started
+                print(
+                    f"setup users={len(users)} sockets={len(clients)} "
+                    f"seconds={setup_seconds:.2f}"
+                )
+            except Exception as exc:
+                return [
+                    ScenarioResult(
+                        unit_id=-1,
+                        ok=False,
+                        seconds=time.perf_counter() - setup_started,
+                        users=[user.creds.username for user in users],
+                        error=f"setup failed: {exc}",
+                        timings=self._helper.timings,
+                    )
+                ]
+            results = await self._run_games()
+            try:
+                await self._helper._probe_http_after_game(users)  # noqa: SLF001
+            except Exception as exc:
+                print(f"post_game_probe failed: {exc}")
+            return results
         finally:
             await asyncio.gather(
                 *(client.close() for client in clients), return_exceptions=True
@@ -1013,6 +1020,8 @@ class QueueLoadRunner:
                     )
                     if result.error:
                         print(f"      error={result.error}")
+                if any(not result.ok for result in wave_results):
+                    break
             finally:
                 await self._release_players(players)
             next_game_id += wave_games
