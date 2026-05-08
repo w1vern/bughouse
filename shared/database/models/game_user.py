@@ -12,7 +12,7 @@ from .user import User
 class GameUser(BaseModel):
     __tablename__ = "game_users"
 
-    board: Mapped[int]
+    board_number: Mapped[int]
     color: Mapped[int]
     rating: Mapped[float]
     diff: Mapped[float]

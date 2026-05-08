@@ -10,7 +10,7 @@ from .user import UserSchema
 
 class MoveSchema(BaseModel):
     notation: str
-    time_to_move: float
+    time_to_move: int
     board_number: int
 
     @classmethod
@@ -23,7 +23,7 @@ class MoveSchema(BaseModel):
 
 
 class GameUserSchema(BaseModel):
-    board: int
+    board_number: int
     color: int
     rating: float
     diff: float
@@ -32,7 +32,7 @@ class GameUserSchema(BaseModel):
     @classmethod
     def from_db(cls, game_user: GameUser) -> 'GameUserSchema':
         return GameUserSchema(
-            board=game_user.board,
+            board_number=game_user.board_number,
             color=game_user.color,
             rating=game_user.rating,
             diff=game_user.diff,
@@ -45,6 +45,8 @@ class GameSchema(BaseModel):
     result: int
     game_time: float
     increment: float
+    rated: bool
+    end_reason: str | None
     moves: list[MoveSchema]
     game_users: list[GameUserSchema]
 
@@ -55,6 +57,8 @@ class GameSchema(BaseModel):
             result=game.result,
             game_time=game.game_time,
             increment=game.increment,
+            rated=game.rated,
+            end_reason=game.end_reason,
             moves=[MoveSchema.from_db(move)
                    for move in game.moves],
             game_users=[GameUserSchema.from_db(game_user)

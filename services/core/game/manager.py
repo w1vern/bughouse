@@ -367,7 +367,7 @@ class GameManager:
 
             diffs = (0.0, 0.0, 0.0, 0.0)
             try:
-                diffs = await self._persist(game, result)
+                diffs = await self._persist(game, result, reason)
             except Exception:
                 logger.exception("failed to persist game %s", game.id)
 
@@ -407,6 +407,7 @@ class GameManager:
         self,
         game: GameObj,
         result: GameResult,
+        reason: EndReason,
     ) -> tuple[float, float, float, float]:
         async with self._session_factory() as session:
             user_repo = UserRepository(session)
@@ -424,15 +425,27 @@ class GameManager:
 
             diffs: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
             if game.config.rated and result != GameResult.ABORT:
-                old_mus = [u.rating for u in users]
+                old_mus = [p.rating_before for p in game.players]
                 # Team A = positions (0, 1); Team B = positions (2, 3).
                 team_a = (
-                    self._ts.create_rating(users[0].rating, users[0].sigma),
-                    self._ts.create_rating(users[1].rating, users[1].sigma),
+                    self._ts.create_rating(
+                        game.players[0].rating_before,
+                        game.players[0].sigma_before,
+                    ),
+                    self._ts.create_rating(
+                        game.players[1].rating_before,
+                        game.players[1].sigma_before,
+                    ),
                 )
                 team_b = (
-                    self._ts.create_rating(users[2].rating, users[2].sigma),
-                    self._ts.create_rating(users[3].rating, users[3].sigma),
+                    self._ts.create_rating(
+                        game.players[2].rating_before,
+                        game.players[2].sigma_before,
+                    ),
+                    self._ts.create_rating(
+                        game.players[3].rating_before,
+                        game.players[3].sigma_before,
+                    ),
                 )
                 if result == GameResult.TEAM_A:
                     ranks = [0, 1]
@@ -456,16 +469,39 @@ class GameManager:
                     users[3].rating - old_mus[3],
                 )
 
-            moves_payload: list[tuple[str, float, int, UUID]] = [
-                (m.uci, m.spent / 1000.0, m.board, users[game.pos_of(m.username)].id)
+            moves_payload: list[tuple[str, int, int, UUID]] = [
+                (m.uci, m.spent, m.board, users[game.pos_of(m.username)].id)
                 for m in game.moves
             ]
+            board_numbers: tuple[int, int, int, int] = (
+                pos_to_board(0),
+                pos_to_board(1),
+                pos_to_board(2),
+                pos_to_board(3),
+            )
+            colors: tuple[int, int, int, int] = (
+                0 if pos_to_color(0, game.color_flip) == chess.WHITE else 1,
+                0 if pos_to_color(1, game.color_flip) == chess.WHITE else 1,
+                0 if pos_to_color(2, game.color_flip) == chess.WHITE else 1,
+                0 if pos_to_color(3, game.color_flip) == chess.WHITE else 1,
+            )
+            ratings: tuple[float, float, float, float] = (
+                game.players[0].rating_before,
+                game.players[1].rating_before,
+                game.players[2].rating_before,
+                game.players[3].rating_before,
+            )
 
             await game_repo.create(
                 result=result.value,
                 game_time=game.config.clock_time / 1000.0,
                 increment=game.config.incr / 1000.0,
+                rated=game.config.rated,
+                end_reason=reason.value,
                 users=(users[0], users[1], users[2], users[3]),
+                board_numbers=board_numbers,
+                colors=colors,
+                ratings=ratings,
                 diffs=diffs,
                 moves=moves_payload,
             )

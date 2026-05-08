@@ -50,18 +50,20 @@ class BaseRepository(Generic[ModelType]):
                 setattr(instance, field, value)
         await self.session.flush()
 
-    async def get_by_id(self,
-                        id: UUID
-                        ) -> ModelType | None:
+    async def get_by_id(
+        self,
+        id: UUID
+    ) -> ModelType | None:
         stmt = select(self.model).where(
             self.model.id == id,
             self.model.deleted_date == None
         ).limit(1)
         return await self.session.scalar(stmt)
 
-    def __build_filters(self,
-                        **kwargs: Any | None
-                        ) -> list[BinaryExpression[bool]]:
+    def __build_filters(
+        self,
+        **kwargs: Any | None
+    ) -> list[BinaryExpression[bool]]:
         filters = [self.model.deleted_date.is_(None)]
         for field, value in kwargs.items():
             if not value is None:
@@ -72,11 +74,12 @@ class BaseRepository(Generic[ModelType]):
                         f"Model {self.model.__name__} has no field '{field}'")
         return filters
 
-    async def get_all(self,
-                      limit: int | None = None,
-                      offset: int | None = None,
-                      **kwargs: Any | None
-                      ) -> list[ModelType]:
+    async def get_all(
+        self,
+        limit: int | None = None,
+        offset: int | None = None,
+        **kwargs: Any | None
+    ) -> list[ModelType]:
         stmt = (
             select(self.model)
             .where(and_(*self.__build_filters(**kwargs)))

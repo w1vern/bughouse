@@ -92,15 +92,25 @@ class FakeGameRepository:
         result: int,
         game_time: float,
         increment: float,
+        rated: bool,
+        end_reason: str | None,
         users: tuple[SimpleNamespace, SimpleNamespace, SimpleNamespace, SimpleNamespace],
+        board_numbers: tuple[int, int, int, int],
+        colors: tuple[int, int, int, int],
+        ratings: tuple[float, float, float, float],
         diffs: tuple[float, float, float, float],
-        moves: list[tuple[str, float, int, object]],
+        moves: list[tuple[str, int, int, object]],
     ) -> SimpleNamespace:
         payload = {
             "result": result,
             "game_time": game_time,
             "increment": increment,
+            "rated": rated,
+            "end_reason": end_reason,
             "users": tuple(u.username for u in users),
+            "board_numbers": board_numbers,
+            "colors": colors,
+            "ratings": ratings,
             "diffs": diffs,
             "moves": moves,
         }
@@ -533,6 +543,11 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.session_factory.created_games), 1)
         persisted = self.session_factory.created_games[0]
         self.assertEqual(persisted["result"], GameResult.TEAM_A.value)
+        self.assertFalse(persisted["rated"])
+        self.assertEqual(persisted["end_reason"], EndReason.CHECKMATE.value)
+        self.assertEqual(persisted["board_numbers"], (0, 1, 0, 1))
+        self.assertEqual(persisted["colors"], (0, 1, 1, 0))
+        self.assertEqual(persisted["ratings"], (25.0, 25.0, 25.0, 25.0))
         self.assertEqual(
             [move[0] for move in persisted["moves"]],
             ["e2e4", "e7e5", "d1h5", "b8c6", "f1c4", "g8f6", "h5f7"],
@@ -574,6 +589,23 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         _usernames, status, _rating_changes = self.notifier.game_ends[0]
         self.assertEqual(status, "WinA")
         self.assertEqual(self.session_factory.created_games[0]["result"], GameResult.TEAM_A.value)
+
+    async def test_rated_game_persists_start_ratings_and_rating_diffs(self) -> None:
+        start_ratings = (30.0, 31.0, 20.0, 21.0)
+        for name, rating in zip(PLAYER_NAMES, start_ratings):
+            self.users[name].rating = rating
+
+        await self.create_game(config=LobbyConfig(rated=True))
+        await self.manager.resign("dave")
+
+        persisted = self.session_factory.created_games[0]
+        self.assertTrue(persisted["rated"])
+        self.assertEqual(persisted["end_reason"], EndReason.RESIGN.value)
+        self.assertEqual(persisted["ratings"], start_ratings)
+
+        for index, name in enumerate(PLAYER_NAMES):
+            diff = self.users[name].rating - start_ratings[index]
+            self.assertAlmostEqual(persisted["diffs"][index], diff)
 
     async def test_handle_flag_finishes_for_flagged_players_opponent_team(self) -> None:
         game_id = await self.create_game()

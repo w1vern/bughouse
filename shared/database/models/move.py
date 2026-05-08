@@ -14,7 +14,7 @@ class Move(BaseModel):
 
     notation: Mapped[str]
     index: Mapped[int]
-    time_to_move: Mapped[float]
+    time_to_move: Mapped[int]
     board_number: Mapped[int]
 
     game_id: Mapped[UUID] = mapped_column(ForeignKey("games.id"))

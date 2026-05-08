@@ -1,7 +1,8 @@
 
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Game, GameUser, Move, User
@@ -24,22 +25,29 @@ class GameRepository(BaseRepository[Game]):
         result: int,
         game_time: float,
         increment: float,
+        rated: bool,
+        end_reason: str | None,
         users: tuple[User, User, User, User],
+        board_numbers: tuple[int, int, int, int],
+        colors: tuple[int, int, int, int],
+        ratings: tuple[float, float, float, float],
         diffs: tuple[float, float, float, float],
-        moves: list[tuple[str, float, int, UUID]]
+        moves: list[tuple[str, int, int, UUID]]
     ) -> Game:
         game = await self._create(
             result=result,
             game_time=game_time,
-            increment=increment
+            increment=increment,
+            rated=rated,
+            end_reason=end_reason
         )
         for index in range(4):
             gu = GameUser(
                 user_id=users[index].id,
                 game_id=game.id,
-                board=index // 2,
-                color=index % 2,
-                rating=users[index].rating,
+                board_number=board_numbers[index],
+                color=colors[index],
+                rating=ratings[index],
                 diff=diffs[index]
             )
             self.session.add(gu)
@@ -56,6 +64,53 @@ class GameRepository(BaseRepository[Game]):
         await self.session.flush()
         return game
 
+    async def get_all(
+        self,
+        limit: int | None = None,
+        offset: int | None = None,
+        **kwargs: Any | None
+    ) -> list[Game]:
+        user_id = kwargs.pop("user_id", None)
+        if kwargs:
+            return await super().get_all(limit, offset, **kwargs)
+        if user_id is None:
+            return await super().get_all(limit, offset)
+
+        stmt = (
+            select(self.model)
+            .join(GameUser)
+            .where(self.model.deleted_date.is_(None))
+            .where(GameUser.deleted_date.is_(None))
+            .where(GameUser.user_id == user_id)
+            .limit(limit)
+            .offset(offset)
+            .order_by(self.model.created_date.desc(), self.model.id.asc())
+        )
+        return list((await self.session.scalars(stmt)).all())
+
+    async def count(
+        self,
+        **kwargs: Any
+    ) -> int:
+        user_id = kwargs.pop("user_id", None)
+        if kwargs:
+            return await super().count(**kwargs)
+        if user_id is None:
+            return await super().count()
+
+        stmt = (
+            select(func.count())
+            .select_from(self.model)
+            .join(GameUser)
+            .where(self.model.deleted_date.is_(None))
+            .where(GameUser.deleted_date.is_(None))
+            .where(GameUser.user_id == user_id)
+        )
+        count = await self.session.scalar(stmt)
+        if count is None:
+            return 0
+        return count
+
     async def get_by_user(
         self,
         user: User
@@ -63,6 +118,8 @@ class GameRepository(BaseRepository[Game]):
         stmt = (
             select(self.model)
             .join(GameUser)
+            .where(self.model.deleted_date.is_(None))
+            .where(GameUser.deleted_date.is_(None))
             .where(GameUser.user_id == user.id)
             .order_by(self.model.created_date.desc())
         )

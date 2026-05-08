@@ -16,9 +16,11 @@ class Game(BaseModel):
     result: Mapped[int]
     game_time: Mapped[float]
     increment: Mapped[float]
+    rated: Mapped[bool]
+    end_reason: Mapped[str | None] = mapped_column(nullable=True)
 
     moves: Mapped[list['Move']] = relationship(
-        lazy='selectin', back_populates='game')
+        lazy='selectin', back_populates='game', order_by='Move.index')
     game_users: Mapped[list['GameUser']] = relationship(
         lazy='selectin', back_populates='game'
     )
