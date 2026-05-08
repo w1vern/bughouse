@@ -51,5 +51,6 @@ class LoginUserSchema(BaseModel):
 class EditUserSchema(BaseModel):
     email: str | None
     username: str | None
+    old_password: str
     password: str | None
     repeat_password: str | None

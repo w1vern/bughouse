@@ -35,8 +35,6 @@ class UserRepository(BaseRepository[User]):
         user: User,
         password: str
     ) -> bool:
-        if not user.password_hash:
-            return False
         return bcrypt.checkpw(
             password=password.encode(),
             hashed_password=user.password_hash.encode()
@@ -56,9 +54,9 @@ class UserRepository(BaseRepository[User]):
     async def create(
         self,
         *,
-        email: str | None,
+        email: str,
         username: str,
-        password: str | None,
+        password: str,
         rating: float,
         sigma: float,
         color: int

@@ -7,10 +7,10 @@ back_install:
 	uv sync
 
 gen_migration:
-	alembic -c services/alembic/alembic.ini revision --autogenerate -m "first migration"
+	uv run -m alembic -c services/alembic/alembic.ini revision --autogenerate
 
 migration:
-	alembic -c services/alembic/alembic.ini upgrade head
+	uv run -m alembic -c services/alembic/alembic.ini upgrade head
 
 down_migration:
 	alembic -c services/alembic/alembic.ini downgrade -1

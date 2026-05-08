@@ -64,6 +64,8 @@ class UserService:
             raise PermissionDeniedException()
         user = await self.ur.get_by_id(id)
         assert user is not None, "User cannot be None"
+        if not await self.ur._check_password(user, edit_schema.old_password):
+            raise PermissionDeniedException()
         await self.ur.edit(
             user,
             email=edit_schema.email,
