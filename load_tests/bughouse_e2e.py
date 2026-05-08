@@ -608,7 +608,6 @@ class UnitScenario:
         )
         await primary.http.expect("GET", "/games/count")
         await primary.http.expect("GET", "/games", query={"limit": 1, "offset": 0})
-        await primary.http.expect("GET", "/ranking_params", statuses=(200, 403))
         if self.config.touch_debug_endpoints:
             await primary.http.expect(
                 "PATCH",

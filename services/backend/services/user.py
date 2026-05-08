@@ -4,7 +4,7 @@ from uuid import UUID
 from fastapi import Depends
 from redis.asyncio.client import Redis
 
-from shared.database import User, UserRepository
+from shared.database import UserRepository
 from shared.infrastructure import setup_logger
 
 from ..depends import get_user, get_user_repo

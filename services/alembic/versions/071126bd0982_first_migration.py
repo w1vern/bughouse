@@ -1,18 +1,19 @@
 
 """first migration
 
-Revision ID: 106fb4ae6b95
+Revision ID: 071126bd0982
 Revises: 
-Create Date: 2026-04-21 19:46:26.474324
+Create Date: 2026-05-08 15:02:17.911583
 
 """
 from typing import Sequence, Union
 
-import sqlalchemy as sa
 from alembic import op
+import sqlalchemy as sa
+
 
 # revision identifiers, used by Alembic.
-revision: str = '106fb4ae6b95'
+revision: str = '071126bd0982'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -24,15 +25,12 @@ def upgrade() -> None:
     sa.Column('result', sa.Integer(), nullable=False),
     sa.Column('game_time', sa.Float(), nullable=False),
     sa.Column('increment', sa.Float(), nullable=False),
+    sa.Column('rated', sa.Boolean(), nullable=False),
+    sa.Column('end_reason', sa.String(), nullable=True),
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('created_date', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
     sa.Column('deleted_date', sa.DateTime(), nullable=True),
     sa.PrimaryKeyConstraint('id')
-    )
-    op.create_table('ranking_params',
-    sa.Column('name', sa.String(), nullable=False),
-    sa.Column('value', sa.Float(), nullable=False),
-    sa.PrimaryKeyConstraint('name')
     )
     op.create_table('users',
     sa.Column('email', sa.String(), nullable=True),
@@ -50,7 +48,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_users_email'), 'users', ['email'], unique=True)
     op.create_index(op.f('ix_users_username'), 'users', ['username'], unique=True)
     op.create_table('game_users',
-    sa.Column('board', sa.Integer(), nullable=False),
+    sa.Column('board_number', sa.Integer(), nullable=False),
     sa.Column('color', sa.Integer(), nullable=False),
     sa.Column('rating', sa.Float(), nullable=False),
     sa.Column('diff', sa.Float(), nullable=False),
@@ -66,7 +64,7 @@ def upgrade() -> None:
     op.create_table('moves',
     sa.Column('notation', sa.String(), nullable=False),
     sa.Column('index', sa.Integer(), nullable=False),
-    sa.Column('time_to_move', sa.Float(), nullable=False),
+    sa.Column('time_to_move', sa.Integer(), nullable=False),
     sa.Column('board_number', sa.Integer(), nullable=False),
     sa.Column('game_id', sa.Uuid(), nullable=False),
     sa.Column('user_id', sa.Uuid(), nullable=False),
@@ -87,6 +85,5 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_users_username'), table_name='users')
     op.drop_index(op.f('ix_users_email'), table_name='users')
     op.drop_table('users')
-    op.drop_table('ranking_params')
     op.drop_table('games')
     # ### end Alembic commands ###

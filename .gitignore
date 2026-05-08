@@ -9,7 +9,6 @@ __pycache__/
 logs/
 
 *.md
-!AGENTS.md
 !README.md
 result.tree
 

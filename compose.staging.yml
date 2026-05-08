@@ -50,7 +50,7 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      fill_db:
+      alembic:
         condition: service_completed_successfully
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://backend:8000/api/health" ]
@@ -72,22 +72,11 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      fill_db:
+      alembic:
         condition: service_completed_successfully
     profiles:
       - with_backend
     restart: unless-stopped
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-
-  fill_db:
-    image: ghcr.io/w1vern/bughouse:staging
-    env_file:
-      - .env
-    depends_on:
-      alembic:
-        condition: service_completed_successfully
-    command: python -m services.fill_db
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 

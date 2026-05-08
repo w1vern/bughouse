@@ -3,7 +3,13 @@ import asyncio
 from uuid import uuid4
 
 import grpc
-from fastapi import APIRouter, Cookie, Depends, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Cookie,
+    Depends,
+    WebSocket,
+    WebSocketDisconnect
+)
 from redis.asyncio import Redis
 
 from shared.database import User, UserRepository, session_manager

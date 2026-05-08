@@ -7,7 +7,6 @@ from redis.asyncio import Redis
 from shared.database import User, UserRepository
 from shared.infrastructure import env_config
 
-from ..config import Config
 from ..depends import get_user_repo
 from ..exceptions import *
 from ..redis import RedisType, get_redis_client

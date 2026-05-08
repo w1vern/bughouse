@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.database import (
     GameRepository,
-    RankingParamRepository,
     UserRepository,
     session_manager
 )
@@ -26,9 +25,3 @@ async def get_game_repo(
     session: AsyncSession = Depends(get_session)
 ) -> GameRepository:
     return GameRepository(session)
-
-
-async def get_ranking_param_repo(
-    session: AsyncSession = Depends(get_session)
-) -> RankingParamRepository:
-    return RankingParamRepository(session)

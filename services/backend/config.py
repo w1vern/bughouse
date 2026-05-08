@@ -10,7 +10,4 @@ SECURE_COOKIES = True if env_config.boot_level.value == BootLevel.RELEASE.value 
 class Config:
     access_token_lifetime = 60 * 100
     refresh_token_lifetime = 3600 * 24 * 30
-    login_gap = 20
-    ip_buffer = 100000  # 10
-    ip_buffer_lifetime = 60*60*24
     algorithm = "HS256"

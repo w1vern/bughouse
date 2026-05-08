@@ -57,14 +57,6 @@ class RankingParams(BaseModel):
     queue_wait_bonus: float = 0.001
     queue_color_weight: float = 0.01
 
-class SuperUser(BaseModel):
-    model_config = SettingsConfigDict(
-        populate_by_name=True)
-
-    email: str = ""
-    username: str = ""
-    password: str = ""
-
 
 class CoreSettings(BaseModel):
     model_config = SettingsConfigDict(
@@ -84,7 +76,6 @@ class Settings(BaseSettings):
     db: DBSettings = DBSettings()
     redis: RedisSettings = RedisSettings()
     backend: BackendSettings = BackendSettings()
-    superuser: SuperUser = SuperUser()
     ranking: RankingParams = RankingParams()
     core: CoreSettings = CoreSettings()
     boot_level: BootLevel = BootLevel.DEBUG
