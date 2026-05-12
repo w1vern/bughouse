@@ -1,4 +1,5 @@
 
+from datetime import date, datetime, time
 from typing import Any
 from uuid import UUID
 
@@ -124,3 +125,46 @@ class GameRepository(BaseRepository[Game]):
             .order_by(self.model.created_date.desc())
         )
         return list((await self.session.scalars(stmt)).all())
+
+    async def get_user_rating_history(
+        self,
+        user_id: UUID,
+        date_from: date | None = None,
+        date_to: date | None = None
+    ) -> list[tuple[datetime, float, float]]:
+        stmt = (
+            select(
+                self.model.created_date,
+                GameUser.rating,
+                GameUser.diff
+            )
+            .join(GameUser)
+            .where(self.model.deleted_date.is_(None))
+            .where(GameUser.deleted_date.is_(None))
+            .where(self.model.rated.is_(True))
+            .where(GameUser.user_id == user_id)
+            .order_by(
+                self.model.created_date.asc(),
+                self.model.id.asc()
+            )
+        )
+        if date_from is not None:
+            stmt = stmt.where(
+                self.model.created_date >= datetime.combine(
+                    date_from,
+                    time.min
+                )
+            )
+        if date_to is not None:
+            stmt = stmt.where(
+                self.model.created_date <= datetime.combine(
+                    date_to,
+                    time.max
+                )
+            )
+
+        rows = (await self.session.execute(stmt)).all()
+        return [
+            (created_date, rating, rating + diff)
+            for created_date, rating, diff in rows
+        ]

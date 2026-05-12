@@ -20,10 +20,11 @@ ModelType = TypeVar("ModelType", bound=BaseModel)
 
 
 class BaseRepository(Generic[ModelType]):
-    def __init__(self,
-                 session: AsyncSession,
-                 model: type[ModelType]
-                 ) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        model: type[ModelType]
+    ) -> None:
         self.session = session
         self.model = model
 
@@ -38,10 +39,11 @@ class BaseRepository(Generic[ModelType]):
             raise Exception("Model not created")
         return model
 
-    async def _edit(self,
-                    instance: ModelType,
-                    **kwargs: Any
-                    ) -> None:
+    async def _edit(
+        self,
+        instance: ModelType,
+        **kwargs: Any
+    ) -> None:
         for field, value in kwargs.items():
             if value is not None:
                 if not hasattr(instance, field):
@@ -89,9 +91,10 @@ class BaseRepository(Generic[ModelType]):
         )
         return list((await self.session.scalars(stmt)).all())
 
-    async def count(self,
-                    **kwargs: Any
-                    ) -> int:
+    async def count(
+        self,
+        **kwargs: Any
+    ) -> int:
         stmt = (
             select(func.count())
             .select_from(self.model)
