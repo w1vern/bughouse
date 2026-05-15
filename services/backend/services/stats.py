@@ -8,7 +8,10 @@ from shared.database import GameRepository, User, UserRepository
 from shared.protobuf import core_pb2 as pb
 
 from ..depends import get_game_repo, get_user, get_user_repo
-from ..exceptions import InvalidDateRangeException, UserNotFoundException
+from ..exceptions import (
+    InvalidDateRangeException,
+    UserNotFoundException
+)
 from ..schemas import (
     DailyRatingSchema,
     RatingExtremesSchema,

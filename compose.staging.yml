@@ -50,7 +50,7 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      alembic:
+      bootstrap:
         condition: service_completed_successfully
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://backend:8000/api/health" ]
@@ -72,7 +72,7 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      alembic:
+      bootstrap:
         condition: service_completed_successfully
     profiles:
       - with_backend
@@ -91,6 +91,16 @@ services:
         condition: service_healthy
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
+
+  bootstrap:
+    image: ghcr.io/w1vern/bughouse:staging
+    restart: no
+    env_file:
+      - .env
+    depends_on:
+      alembic:
+        condition: service_completed_successfully
+    command: python -m services.bootstrap
 
   frontend:
     image: ghcr.io/immortalai/bugchess-vue:staging

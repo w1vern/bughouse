@@ -45,6 +45,15 @@ class BackendSettings(BaseModel):
     workers: int = 0
 
 
+class SuperUser(BaseModel):
+    model_config = SettingsConfigDict(
+        populate_by_name=True)
+
+    email: str = ""
+    username: str = ""
+    password: str = ""
+
+
 class RankingParams(BaseModel):
     model_config = SettingsConfigDict(
         populate_by_name=True)
@@ -76,6 +85,7 @@ class Settings(BaseSettings):
     db: DBSettings = DBSettings()
     redis: RedisSettings = RedisSettings()
     backend: BackendSettings = BackendSettings()
+    superuser: SuperUser = SuperUser()
     ranking: RankingParams = RankingParams()
     core: CoreSettings = CoreSettings()
     boot_level: BootLevel = BootLevel.DEBUG

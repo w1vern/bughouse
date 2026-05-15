@@ -38,7 +38,7 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      alembic:
+      bootstrap:
         condition: service_completed_successfully
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://backend:8000/api/health" ]
@@ -59,7 +59,7 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      alembic:
+      bootstrap:
         condition: service_completed_successfully
     profiles:
       - with_backend
@@ -75,6 +75,17 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  bootstrap:
+    build:
+      context: .
+    restart: no
+    env_file:
+      - .env
+    depends_on:
+      alembic:
+        condition: service_completed_successfully
+    command: python -m services.bootstrap
 
   frontend:
     build:

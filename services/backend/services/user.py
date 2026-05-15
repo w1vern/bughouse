@@ -5,7 +5,7 @@ from fastapi import Depends
 from redis.asyncio.client import Redis
 
 from shared.database import UserRepository
-from shared.infrastructure import setup_logger
+from shared.infrastructure import env_config, setup_logger
 
 from ..depends import get_user, get_user_repo
 from ..exceptions import (
@@ -65,6 +65,8 @@ class UserService:
         user = await self.ur.get_by_id(id)
         assert user is not None, "User cannot be None"
         if not await self.ur._check_password(user, edit_schema.old_password):
+            raise PermissionDeniedException()
+        if edit_schema.username == env_config.superuser.username:
             raise PermissionDeniedException()
         await self.ur.edit(
             user,
