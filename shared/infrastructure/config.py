@@ -75,6 +75,23 @@ class CoreSettings(BaseModel):
     port: int = 50051
 
 
+class OAuthProviderSettings(BaseModel):
+    model_config = SettingsConfigDict(
+        populate_by_name=True)
+
+    id: str = ""
+    secret: str = ""
+
+
+class OAuthSettings(BaseModel):
+    model_config = SettingsConfigDict(
+        populate_by_name=True)
+
+    google: OAuthProviderSettings = OAuthProviderSettings()
+    github: OAuthProviderSettings = OAuthProviderSettings()
+    lichess: OAuthProviderSettings = OAuthProviderSettings()
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=os.getenv("ENV_FILE", "dev.env"),
@@ -88,7 +105,11 @@ class Settings(BaseSettings):
     superuser: SuperUser = SuperUser()
     ranking: RankingParams = RankingParams()
     core: CoreSettings = CoreSettings()
+    oauth: OAuthSettings = OAuthSettings()
     boot_level: BootLevel = BootLevel.DEBUG
+
+    base_url: str = "http://localhost:8000"
+    frontend_url: str = "http://localhost:5173"
 
 
 env_config = Settings()

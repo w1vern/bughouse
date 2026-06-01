@@ -5,6 +5,11 @@ import traceback
 from .base import BaseInternalServerErrorException
 
 
+class OAuthProviderNotConfiguredException(BaseInternalServerErrorException):
+    def __init__(self, provider: str) -> None:
+        super().__init__(f"OAuth provider '{provider}' is not configured")
+
+
 class SendFeedbackToAdminException(BaseInternalServerErrorException):
     def __init__(self) -> None:
         current_frame = inspect.currentframe()

@@ -50,3 +50,13 @@ class RefreshTokenExpiredException(BaseUnauthorizedException):
 class RefreshTokenInvalidException(BaseUnauthorizedException):
     def __init__(self) -> None:
         super().__init__("Invalid refresh token")
+
+
+class OAuthTokenExchangeFailedException(BaseUnauthorizedException):
+    def __init__(self) -> None:
+        super().__init__("Failed to exchange OAuth authorization code")
+
+
+class OAuthUserInfoFailedException(BaseUnauthorizedException):
+    def __init__(self) -> None:
+        super().__init__("Failed to fetch user info from OAuth provider")

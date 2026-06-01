@@ -3,6 +3,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.database import (
+    AuthProviderRepository,
     GameRepository,
     UserRepository,
     session_manager
@@ -25,3 +26,9 @@ async def get_game_repo(
     session: AsyncSession = Depends(get_session)
 ) -> GameRepository:
     return GameRepository(session)
+
+
+async def get_auth_provider_repo(
+    session: AsyncSession = Depends(get_session)
+) -> AuthProviderRepository:
+    return AuthProviderRepository(session)

@@ -106,3 +106,48 @@ class RefreshToken:
             "user_id": str(self.user_id),
             "secret": self.secret
         })
+
+
+class OAuthRegistrationToken:
+    def __init__(self,
+                 provider: str,
+                 provider_user_id: str,
+                 username: str,
+                 email: str | None = None,
+                 avatar_url: str | None = None,
+                 created_date: datetime | str | None = None,
+                 lifetime: timedelta | float | None = None
+                 ) -> None:
+        self.provider = provider
+        self.provider_user_id = provider_user_id
+        self.username = username
+        self.email = email
+        self.avatar_url = avatar_url
+        if created_date is None:
+            self.created_date = datetime.now(UTC).replace(tzinfo=None)
+        elif isinstance(created_date, str):
+            self.created_date = datetime.fromisoformat(created_date)
+        else:
+            self.created_date = created_date
+        if lifetime is None:
+            self.lifetime = timedelta(
+                seconds=Config.oauth_registration_token_lifetime)
+        elif isinstance(lifetime, (float, int)):
+            self.lifetime = timedelta(seconds=lifetime)
+        else:
+            self.lifetime = lifetime
+
+    @classmethod
+    def from_token(cls, token: str) -> "OAuthRegistrationToken":
+        return OAuthRegistrationToken(**decode_jwt(token))
+
+    def to_token(self) -> str:
+        return encode_jwt({
+            "created_date": self.created_date.isoformat(),
+            "lifetime": self.lifetime.total_seconds(),
+            "provider": self.provider,
+            "provider_user_id": self.provider_user_id,
+            "username": self.username,
+            "email": self.email,
+            "avatar_url": self.avatar_url
+        })

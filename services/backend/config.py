@@ -11,3 +11,5 @@ class Config:
     access_token_lifetime = 60 * 100
     refresh_token_lifetime = 3600 * 24 * 30
     algorithm = "HS256"
+    oauth_state_lifetime = 60 * 10
+    oauth_registration_token_lifetime = 60 * 15

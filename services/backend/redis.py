@@ -10,6 +10,7 @@ from shared.infrastructure import get_redis_client as grc
 class RedisType(str, Enum):
     invalidated_access_token = "invalidated_access_token"
     active_player = "active_player"
+    oauth_state = "oauth_state"
 
 
 def get_redis_client() -> Redis:
