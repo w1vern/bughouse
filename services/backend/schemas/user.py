@@ -1,10 +1,16 @@
 
+from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, StringConstraints
 
 from shared.database import User
 from shared.infrastructure import env_config
+
+# Player usernames may only contain lowercase latin letters and digits. This
+# also reserves any other character (e.g. capitals) for bot names, so a player
+# can never share a username with a bot.
+Username = Annotated[str, StringConstraints(pattern=r"^[a-z0-9]+$")]
 
 
 class UserTokenSchema(BaseModel):
@@ -41,7 +47,7 @@ class UserSchema(BaseModel):
 
 class CreateUserSchema(BaseModel):
     email: str
-    username: str
+    username: Username
     password: str
     repeat_password: str
 
@@ -53,7 +59,7 @@ class LoginUserSchema(BaseModel):
 
 class EditUserSchema(BaseModel):
     email: str | None
-    username: str | None
+    username: Username | None
     old_password: str
     password: str | None
     repeat_password: str | None

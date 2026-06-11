@@ -68,17 +68,17 @@ class EngineSettings(BaseModel):
     model_config = SettingsConfigDict(
         populate_by_name=True)
 
-    # Path to the Fairy-Stockfish binary. Empty => engine disabled globally
-    # (bots always play random moves). Lets dev/tests run without the binary.
-    path: str = ""
+    # The Fairy-Stockfish binary lives at a fixed path baked into the image
+    # (see Dockerfile / services/core/bots/engine.py), so only the tunables are
+    # configurable here.
     pool_size: int = 1
     # Safety ceiling for a single engine search, milliseconds.
     max_think_ms: int = 1000
 
 
-# Engine settings are exposed as flat top-level Settings fields (ENGINE_PATH,
-# ENGINE_POOL_SIZE, ENGINE_MAX_THINK_MS) because env_nested_delimiter="_" cannot
-# bind nested fields whose names themselves contain underscores.
+# Engine tunables are exposed as flat top-level Settings fields
+# (ENGINE_POOL_SIZE, ENGINE_MAX_THINK_MS) because env_nested_delimiter="_"
+# cannot bind nested fields whose names themselves contain underscores.
 
 
 class RankingParams(BaseModel):
@@ -131,7 +131,6 @@ class Settings(BaseSettings):
     backend: BackendSettings = BackendSettings()
     superuser: SuperUser = SuperUser()
     bots: list[BotConfig] = []
-    engine_path: str = ""
     engine_pool_size: int = 1
     engine_max_think_ms: int = 1000
     ranking: RankingParams = RankingParams()
@@ -145,7 +144,6 @@ class Settings(BaseSettings):
     @property
     def engine(self) -> EngineSettings:
         return EngineSettings(
-            path=self.engine_path,
             pool_size=self.engine_pool_size,
             max_think_ms=self.engine_max_think_ms,
         )

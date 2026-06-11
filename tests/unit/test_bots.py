@@ -10,7 +10,6 @@ from shared.infrastructure import BotConfig
 from services.core.bots import BotRegistry
 from services.core.invites import InviteManager
 from services.core.lobby.errors import (
-    ERR_BOT_ALREADY_SEATED,
     ERR_INVITE_TARGET_OFFLINE,
     ERR_RATED_WITH_BOT,
     LobbyError,
@@ -122,14 +121,13 @@ class LobbyBotTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(lobby_a.seats[1].username, "bot1")  # type: ignore[union-attr]
         self.assertEqual(lobby_b.seats[1].username, "bot1")  # type: ignore[union-attr]
 
-    async def test_add_bot_rejects_duplicate_in_one_lobby(self) -> None:
+    async def test_same_bot_can_take_multiple_seats_in_one_lobby(self) -> None:
         lobby = await self.manager.create("alice")
         await self.manager.add_bot(lobby.id, "bot1", 1)
+        await self.manager.add_bot(lobby.id, "bot1", 2)
 
-        with self.assertRaises(LobbyError) as err:
-            await self.manager.add_bot(lobby.id, "bot1", 2)
-
-        self.assertEqual(err.exception.code, ERR_BOT_ALREADY_SEATED)
+        self.assertEqual(lobby.seats[1].username, "bot1")  # type: ignore[union-attr]
+        self.assertEqual(lobby.seats[2].username, "bot1")  # type: ignore[union-attr]
 
     async def test_add_bot_rejected_in_rated_lobby(self) -> None:
         lobby = await self.manager.create("alice")

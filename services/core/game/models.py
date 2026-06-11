@@ -95,6 +95,9 @@ class MoveRecord:
     uci: str
     spent: int
     index: int
+    # Game position of the mover. Needed because the same bot may occupy
+    # several positions, so username alone is not a unique key.
+    pos: int = 0
 
 
 @dataclass(slots=True)

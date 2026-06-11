@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 
 import chess
 import chess.engine
@@ -12,6 +13,10 @@ logger = setup_logger(__name__)
 
 # Redis set of bot names whose engine is enabled (backend writes, core reads).
 ENGINE_ON_KEY = "bot:engine_on"
+
+# Fixed location of the Fairy-Stockfish binary baked into the image (Dockerfile).
+# If it is absent (e.g. local dev outside Docker), bots play random moves.
+ENGINE_BINARY_PATH = "/usr/local/bin/fairy-stockfish"
 
 
 class BotEngine:
@@ -60,18 +65,21 @@ class BotEngine:
         return {m.decode() if isinstance(m, bytes) else m for m in members}
 
     async def _load(self) -> None:
-        if not self._settings.path:
-            logger.warning("engine path not set; bots will play random moves")
+        if not os.path.exists(ENGINE_BINARY_PATH):
+            logger.warning(
+                "engine binary %s not found; bots will play random moves",
+                ENGINE_BINARY_PATH,
+            )
             return
         queue: asyncio.Queue[chess.engine.UciProtocol] = asyncio.Queue()
         pool: list[chess.engine.UciProtocol] = []
         try:
             for _ in range(max(1, self._settings.pool_size)):
-                _transport, engine = await chess.engine.popen_uci(self._settings.path)
+                _transport, engine = await chess.engine.popen_uci(ENGINE_BINARY_PATH)
                 pool.append(engine)
                 queue.put_nowait(engine)
         except Exception:
-            logger.exception("failed to start engine pool at %s", self._settings.path)
+            logger.exception("failed to start engine pool at %s", ENGINE_BINARY_PATH)
             for engine in pool:
                 try:
                     await engine.quit()

@@ -142,8 +142,7 @@ class LobbyManager:
             raise LobbyError.seat_occupied()
         if lobby.config.rated:
             raise LobbyError.rated_with_bot()
-        if any(s is not None and s.username == bot_username for s in lobby.seats):
-            raise LobbyError.bot_already_seated()
+        # The same bot may occupy several seats in one lobby.
         seat = await self._load_seat(bot_username)
         if not seat.is_bot:
             raise LobbyError.not_a_bot()

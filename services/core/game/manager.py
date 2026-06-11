@@ -234,6 +234,7 @@ class GameManager:
                 uci=uci,
                 spent=spent,
                 index=len(game.moves),
+                pos=pos,
             )
         )
 
@@ -617,7 +618,7 @@ class GameManager:
                 )
 
             moves_payload: list[tuple[str, int, int, UUID]] = [
-                (m.uci, m.spent, m.board, users[game.pos_of(m.username)].id)
+                (m.uci, m.spent, m.board, users[m.pos].id)
                 for m in game.moves
             ]
             board_numbers: tuple[int, int, int, int] = (

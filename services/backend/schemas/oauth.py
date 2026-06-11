@@ -3,6 +3,8 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from .user import Username
+
 
 class OAuthProviderSchema(BaseModel):
     key: str
@@ -21,7 +23,7 @@ class OAuthRegistrationSchema(BaseModel):
 class OAuthCompleteSchema(BaseModel):
     token: str
     email: str
-    username: str
+    username: Username
     password: str
     repeat_password: str
 
