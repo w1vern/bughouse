@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -434,6 +435,8 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_env_bot_uses_engine_move_when_engine_on(self) -> None:
         class FakeEngine:
+            max_think_ms = 1000
+
             def is_engine_on(self, name: str) -> bool:
                 return True
 
@@ -460,6 +463,8 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_env_bot_falls_back_to_random_when_engine_returns_none(self) -> None:
         class FakeEngine:
+            max_think_ms = 1000
+
             def is_engine_on(self, name: str) -> bool:
                 return True
 
@@ -479,6 +484,83 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(game.moves), 1)
         self.assertEqual(game.moves[0].username, "alice")
         self.assertEqual(game.moves[0].board, 0)
+
+    async def test_bot_sits_with_no_legal_move_then_moves_when_piece_arrives(self) -> None:
+        self.manager._bots = BotRegistry([BotConfig(name="alice")])  # random bot
+        self.manager._bot_move_delay_min = 0.0
+        self.manager._bot_move_delay_max = 0.0
+        game_id = await self.create_game()
+        game = self.manager._games[game_id]
+        self.manager._clear_all_bot_tasks(game)
+
+        # Drive board 0 to a distant-check mate: white (alice) is in check and
+        # can only answer by blocking, but holds nothing to drop -> no legal move.
+        board0 = game.boards.boards[0]
+        for uci in ("f2f3", "e7e5", "g2g4", "d8h4"):
+            board0.push_uci(uci)
+        self.assertFalse(any(board0.legal_moves))
+
+        await self.manager._bot_move(game_id, 0, 0)
+        self.assertEqual(len(game.moves), 0)  # sat instead of crashing or moving
+
+        # A piece lands in white's pocket (as a capture on the other board would
+        # deliver); the bot can now block and must move.
+        board0.pockets[chess.WHITE].add(chess.PAWN)
+        self.assertTrue(any(board0.legal_moves))
+
+        await self.manager._bot_move(game_id, 0, 0)
+        self.assertEqual(len(game.moves), 1)
+        self.assertEqual(game.moves[0].board, 0)
+        self.assertEqual(game.moves[0].username, "alice")
+
+    async def test_capture_reschedules_partner_board(self) -> None:
+        game_id = await self.create_game()
+        game = self.manager._games[game_id]
+        self.manager._clear_all_bot_tasks(game)
+        await self.manager.make_move("dave", "e2e4")  # board 1 white
+        await self.manager.make_move("bob", "d7d5")   # board 1 black
+
+        calls: list[int] = []
+        self.manager._maybe_schedule_bot = (  # type: ignore[assignment]
+            lambda g, b: calls.append(b)
+        )
+        await self.manager.make_move("dave", "e4d5")  # capture on board 1
+
+        self.assertIn(1, calls)  # the move's own board
+        self.assertIn(0, calls)  # partner board woken because its pocket grew
+
+    async def test_noncapture_does_not_reschedule_partner_board(self) -> None:
+        game_id = await self.create_game()
+        game = self.manager._games[game_id]
+        self.manager._clear_all_bot_tasks(game)
+
+        calls: list[int] = []
+        self.manager._maybe_schedule_bot = (  # type: ignore[assignment]
+            lambda g, b: calls.append(b)
+        )
+        await self.manager.make_move("dave", "e2e4")  # non-capture on board 1
+
+        self.assertEqual(calls, [1])  # only the move's own board
+
+    async def test_engine_think_ceiling_persists_across_restart(self) -> None:
+        self.manager._bots = BotRegistry([BotConfig(name="alice")])
+        self.manager._engine = SimpleNamespace(  # type: ignore[assignment]
+            max_think_ms=1000,
+            is_engine_on=lambda _name: True,
+        )
+        game_id = await self.create_game()
+        game = self.manager._games[game_id]
+        self.manager._clear_all_bot_tasks(game)
+        board0 = game.boards.boards[0]
+
+        fresh = self.manager._engine_think_time(game, board0, 0)
+        # Pretend 0.8s already went into this ply, as a pocket-change restart
+        # would leave behind; the ceiling must shrink rather than reset.
+        game.think_started_at[0] = time.monotonic() - 0.8
+        after_restart = self.manager._engine_think_time(game, board0, 0)
+
+        self.assertLess(after_restart, fresh)
+        self.assertGreater(after_restart, 0.0)
 
     async def test_make_move_records_move_publishes_to_other_players_and_advances_turn(self) -> None:
         game_id = await self.create_game()

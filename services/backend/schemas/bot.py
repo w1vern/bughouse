@@ -6,7 +6,6 @@ from shared.infrastructure import BotConfig
 
 class BotSchema(BaseModel):
     name: str
-    skill_level: int
     mu: float
     sigma: float
     enabled: bool
@@ -22,7 +21,6 @@ class BotSchema(BaseModel):
     ) -> "BotSchema":
         return cls(
             name=config.name,
-            skill_level=config.skill_level,
             mu=config.mu,
             sigma=config.sigma,
             enabled=enabled,

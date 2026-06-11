@@ -119,6 +119,10 @@ def _empty_auto_abort_at() -> dict[int, int | None]:
     return {0: None, 1: None}
 
 
+def _empty_think_started_at() -> dict[int, float | None]:
+    return {0: None, 1: None}
+
+
 @dataclass(slots=True)
 class GameObj:
     id: UUID
@@ -136,6 +140,13 @@ class GameObj:
     finished: bool = False
     chat: dict[GameResult, list[ChatRecord]] = field(default_factory=_empty_chat)
     auto_abort_at: dict[int, int | None] = field(default_factory=_empty_auto_abort_at)
+    # Monotonic time a bot started thinking on the current ply of each board, or
+    # None while no bot is thinking there. Persists across re-schedules caused by
+    # pocket changes so the per-move think ceiling is not reset on every restart;
+    # cleared when that board's ply advances.
+    think_started_at: dict[int, float | None] = field(
+        default_factory=_empty_think_started_at
+    )
 
     @property
     def usernames(self) -> list[str]:

@@ -18,6 +18,12 @@ ENGINE_ON_KEY = "bot:engine_on"
 # If it is absent (e.g. local dev outside Docker), bots play random moves.
 ENGINE_BINARY_PATH = "/usr/local/bin/fairy-stockfish"
 
+# Extra slack on top of the per-move think budget before a search is considered
+# hung. A healthy search returns within the budget; this only fires on a real
+# stall, and when it does the worker is retired (never reused) because a
+# cancelled UCI search leaves the process desynced.
+_HANG_GUARD_S = 5.0
+
 
 class BotEngine:
     """Pool of Fairy-Stockfish processes shared across all bot games.
@@ -27,8 +33,13 @@ class BotEngine:
       decision reads this in-memory set (no Redis call per move).
     - The process pool is started lazily and torn down once no bot has the
       engine enabled, so it does not occupy memory when unused.
-    - If the binary is missing or all workers are busy, `choose` returns None and
-      the caller falls back to a random move.
+    - Each move is given a bounded think time (clock-aware, hard-capped by
+      `max_think_ms`) and passed as a fixed search time, so a generous game
+      clock can never pin a worker for many seconds and a search always
+      returns before the hang guard. If a search does error or stall, the
+      worker is retired and replaced so the pool can't be poisoned.
+    - If the binary is missing or all workers are busy, `choose` returns None
+      and the caller falls back to a random move.
     """
 
     def __init__(self, redis: Redis, settings: EngineSettings) -> None:
@@ -43,6 +54,10 @@ class BotEngine:
     @property
     def loaded(self) -> bool:
         return self._loaded
+
+    @property
+    def max_think_ms(self) -> int:
+        return self._settings.max_think_ms
 
     def is_engine_on(self, name: str) -> bool:
         return name in self._engine_on
@@ -64,6 +79,14 @@ class BotEngine:
             return set()
         return {m.decode() if isinstance(m, bytes) else m for m in members}
 
+    async def _spawn_one(self) -> chess.engine.UciProtocol | None:
+        try:
+            _transport, engine = await chess.engine.popen_uci(ENGINE_BINARY_PATH)
+            return engine
+        except Exception:
+            logger.exception("failed to start engine at %s", ENGINE_BINARY_PATH)
+            return None
+
     async def _load(self) -> None:
         if not os.path.exists(ENGINE_BINARY_PATH):
             logger.warning(
@@ -73,19 +96,17 @@ class BotEngine:
             return
         queue: asyncio.Queue[chess.engine.UciProtocol] = asyncio.Queue()
         pool: list[chess.engine.UciProtocol] = []
-        try:
-            for _ in range(max(1, self._settings.pool_size)):
-                _transport, engine = await chess.engine.popen_uci(ENGINE_BINARY_PATH)
-                pool.append(engine)
-                queue.put_nowait(engine)
-        except Exception:
-            logger.exception("failed to start engine pool at %s", ENGINE_BINARY_PATH)
-            for engine in pool:
-                try:
-                    await engine.quit()
-                except Exception:
-                    pass
-            return
+        for _ in range(max(1, self._settings.pool_size)):
+            engine = await self._spawn_one()
+            if engine is None:
+                for started in pool:
+                    try:
+                        await started.quit()
+                    except Exception:
+                        pass
+                return
+            pool.append(engine)
+            queue.put_nowait(engine)
         self._pool = pool
         self._available = queue
         self._loaded = True
@@ -108,16 +129,48 @@ class BotEngine:
                 pass
         logger.info("engine pool unloaded")
 
+    async def _retire(
+        self,
+        engine: chess.engine.UciProtocol,
+        queue: asyncio.Queue[chess.engine.UciProtocol],
+    ) -> None:
+        """Drop a possibly-desynced worker and refill the pool to keep its size.
+
+        A cancelled or errored UCI search can leave the process returning stale
+        best moves, so the worker is never reused; instead it is quit and a
+        fresh process takes its slot (unless the pool is being torn down).
+        """
+        try:
+            self._pool.remove(engine)
+        except ValueError:
+            pass
+        try:
+            await engine.quit()
+        except Exception:
+            pass
+        if not self._loaded:
+            return
+        replacement = await self._spawn_one()
+        if replacement is not None:
+            self._pool.append(replacement)
+            queue.put_nowait(replacement)
+
     async def choose(
         self,
         name: str,
         skill_level: int,
         board: chess.Board,
-        white_ms: int,
-        black_ms: int,
-        inc_ms: int,
+        think_time_s: float,
     ) -> str | None:
+        """Search ``board`` for ``think_time_s`` seconds and return a UCI move.
+
+        Time management (clock awareness, the per-move ceiling) is decided by the
+        caller; here we just search for the given time. Returns None if disabled,
+        all workers are busy, there is no legal move, or the search errors.
+        """
         if name not in self._engine_on or not self._loaded:
+            return None
+        if not any(board.legal_moves):
             return None
         queue = self._available
         if queue is None:
@@ -127,27 +180,28 @@ class BotEngine:
         except asyncio.QueueEmpty:
             # All workers busy — fall back to random for this move.
             return None
+
+        budget_s = max(0.05, think_time_s)
+        healthy = False
         try:
-            if not self._loaded:
-                return None
-            limit = chess.engine.Limit(
-                white_clock=max(0, white_ms) / 1000,
-                black_clock=max(0, black_ms) / 1000,
-                white_inc=inc_ms / 1000,
-                black_inc=inc_ms / 1000,
-            )
             result = await asyncio.wait_for(
                 engine.play(
-                    board, limit, options={"Skill Level": int(skill_level)}
+                    board,
+                    chess.engine.Limit(time=budget_s),
+                    options={"Skill Level": int(skill_level)},
                 ),
-                timeout=self._settings.max_think_ms / 1000 + 5.0,
+                timeout=budget_s + _HANG_GUARD_S,
             )
+            healthy = True
             return result.move.uci() if result.move is not None else None
         except Exception:
             logger.exception("engine play failed for bot %s", name)
             return None
         finally:
-            queue.put_nowait(engine)
+            if healthy and self._loaded:
+                queue.put_nowait(engine)
+            else:
+                await self._retire(engine, queue)
 
     async def shutdown(self) -> None:
         async with self._lock:

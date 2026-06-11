@@ -58,6 +58,10 @@ def _board_move_count(game: GameObj, board_idx: int) -> int:
     return sum(1 for move in game.moves if move.board == board_idx)
 
 
+def _has_legal_move(board: chess.Board) -> bool:
+    return any(board.legal_moves)
+
+
 def _now_ms() -> int:
     return int(time.time() * 1000)
 
@@ -220,9 +224,13 @@ class GameManager:
         board_moves_before = _board_move_count(game, board_idx)
 
         try:
-            game.boards.push(board_idx, uci)
+            apply_result = game.boards.push(board_idx, uci)
         except (chess.IllegalMoveError, chess.InvalidMoveError, ValueError) as exc:
             raise GameError.illegal_move(str(exc)) from exc
+
+        # This board's ply advanced, so any bot think budget tracked for it is
+        # done; the next mover (re-scheduled below) starts a fresh budget.
+        game.think_started_at[board_idx] = None
 
         spent = 0
         if board_moves_before >= 2:
@@ -265,6 +273,12 @@ class GameManager:
 
         # If the side now to move on this board is a bot, schedule its reply.
         self._maybe_schedule_bot(game, board_idx)
+        # A capture feeds the partner board's pocket. That can hand a droppable
+        # piece to a bot sitting there with no legal move (e.g. it could only
+        # answer a check by blocking but had nothing to drop), so wake/restart
+        # that board too. Its think budget is preserved (not reset here).
+        if apply_result.captured is not None:
+            self._maybe_schedule_bot(game, 1 - board_idx)
 
     async def send_chat(self, username: str, text: str) -> None:
         game = self.get_game_by_user(username)
@@ -404,6 +418,15 @@ class GameManager:
             self._clear_bot_task(game.id, board_idx)
 
     async def _bot_move(self, game_id: UUID, board_idx: int, pos: int) -> None:
+        game = self._games.get(game_id)
+        if game is None or game.finished:
+            return
+        # Sitting: no legal move (in bughouse a bot may be forced to block a
+        # check but hold nothing to drop). Don't think; it will be re-scheduled
+        # when a capture on the other board feeds this board's pocket.
+        if not _has_legal_move(game.boards.boards[board_idx]):
+            return
+
         delay = random.uniform(
             self._bot_move_delay_min, self._bot_move_delay_max
         ) / 1000.0
@@ -420,6 +443,9 @@ class GameManager:
             return
         player = game.players[pos]
         if not player.is_bot:
+            return
+        # The position/pockets may have changed during the delay.
+        if not _has_legal_move(game.boards.boards[board_idx]):
             return
         uci = await self._choose_bot_move(game, player, board_idx)
         if uci is None:
@@ -443,21 +469,49 @@ class GameManager:
         """
         board = game.boards.boards[board_idx]
         if self._engine is not None and self._engine.is_engine_on(player.username):
-            color = game.boards.turn(board_idx)
-            snap = game.clocks.snapshot()
-            white_ms = snap[f"b{board_idx}w"]
-            black_ms = snap[f"b{board_idx}b"]
+            think_s = self._engine_think_time(game, board, board_idx)
             uci = await self._engine.choose(
                 player.username,
                 player.skill_level,
                 board,
-                white_ms,
-                black_ms,
-                game.config.incr,
+                think_s,
             )
             if uci is not None:
                 return uci
         return self._random_policy.choose(board)
+
+    def _engine_think_time(
+        self,
+        game: GameObj,
+        board: chess.Board,
+        board_idx: int,
+    ) -> float:
+        """Seconds the engine may think on the current ply.
+
+        Clock-aware and hard-capped by ``max_think_ms``. The ceiling is measured
+        from when thinking on this ply began, so restarts triggered by a pocket
+        change (a piece arriving mid-search) do not hand out fresh time.
+        """
+        now = time.monotonic()
+        if game.think_started_at[board_idx] is None:
+            game.think_started_at[board_idx] = now
+        elapsed_ms = (now - game.think_started_at[board_idx]) * 1000
+
+        cap_ms = self._engine.max_think_ms if self._engine is not None else 1000
+        remaining_cap_ms = cap_ms - elapsed_ms
+
+        snap = game.clocks.snapshot()
+        own_ms = (
+            snap[f"b{board_idx}w"]
+            if board.turn == chess.WHITE
+            else snap[f"b{board_idx}b"]
+        )
+        clock_ms = own_ms // 20 + game.config.incr
+
+        budget_ms = min(clock_ms, remaining_cap_ms)
+        budget_ms = min(budget_ms, max(50, own_ms - 100))  # never think past our flag
+        budget_ms = max(50, budget_ms)
+        return budget_ms / 1000
 
     async def _abort_watchdog(
         self,
