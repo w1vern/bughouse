@@ -1,9 +1,16 @@
 
 import asyncio
+import secrets
 
 from sqlalchemy import text
 
-from shared.database import BotRepository, UserRepository, session_manager
+from shared.database import (
+    BOT_USER_EMAILS,
+    BOT_USER_IDS,
+    BOT_USER_USERNAMES,
+    UserRepository,
+    session_manager,
+)
 from shared.infrastructure import env_config, setup_logger
 
 logger = setup_logger(__name__)
@@ -34,32 +41,30 @@ async def wait_for_table(
     raise TimeoutError(f"Timed out waiting for table '{table_name}'")
 
 
-async def create_bots(ur: UserRepository, br: BotRepository) -> None:
-    cfg = env_config.bots
-    for i in range(1, cfg.count + 1):
-        username = f"{cfg.username_prefix}{i}"
-        user = await ur.get_by_username(username)
-        if user is None:
-            user = await ur.create(
-                email=f"{username}@{cfg.email_domain}",
-                username=username,
-                password=cfg.password,
-                rating=env_config.ranking.mu,
-                sigma=env_config.ranking.sigma,
-                color=0
-            )
-        if not user.is_bot:
-            user.is_bot = True
-        if await br.get_by_user_id(user.id) is None:
-            await br.create(user_id=user.id, enabled=False)
+async def create_bot_users(ur: UserRepository) -> None:
+    # Reserved foreign-key-target rows for persisting bot games. Logical bots
+    # (names/levels) live in env config + Redis, not here.
+    for id, username, email in zip(
+        BOT_USER_IDS, BOT_USER_USERNAMES, BOT_USER_EMAILS
+    ):
+        if await ur.get_by_id(id) is not None:
+            continue
+        await ur.create(
+            id=id,
+            email=email,
+            username=username,
+            password=secrets.token_urlsafe(),
+            rating=env_config.ranking.mu,
+            sigma=env_config.ranking.sigma,
+            color=0,
+            is_bot=True
+        )
 
 
 async def main() -> None:
     await wait_for_table("users")
-    await wait_for_table("bots")
     async with session_manager.context_session() as session:
         ur = UserRepository(session)
-        br = BotRepository(session)
         user = await ur.get_by_username(env_config.superuser.username)
         if user is None:
             await ur.create(
@@ -70,7 +75,7 @@ async def main() -> None:
                 sigma=env_config.ranking.sigma,
                 color=0
             )
-        await create_bots(ur, br)
+        await create_bot_users(ur)
     logger.info("database is filled")
 
 if __name__ == "__main__":

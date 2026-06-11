@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from redis.asyncio import Redis
+
 from shared.events import SyncData
 from shared.infrastructure import setup_logger
 from shared.protobuf import core_pb2 as pb
 from shared.protobuf import core_pb2_grpc
 
+from .bots.engine import BotEngine
 from .errors import coreError
 from .game.errors import GameError
 from .game.manager import GameManager
@@ -12,7 +15,7 @@ from .invites import InviteManager
 from .lobby.errors import LobbyError
 from .lobby.manager import LobbyManager
 from .lobby.models import LobbyConfig
-from .notifier import Notifier
+from .notifier import ACTIVE_SET_KEY, Notifier
 from .queue.errors import QueueError
 from .queue.manager import QueueManager
 from .session import UserSessionIndex
@@ -41,6 +44,8 @@ class CoreServiceServicer(core_pb2_grpc.CoreServiceServicer):
         invites: InviteManager,
         notifier: Notifier,
         sessions: UserSessionIndex,
+        engine: BotEngine,
+        redis: Redis,
     ) -> None:
         self.lobbies = lobbies
         self.queue = queue
@@ -48,6 +53,8 @@ class CoreServiceServicer(core_pb2_grpc.CoreServiceServicer):
         self.invites = invites
         self.notifier = notifier
         self.sessions = sessions
+        self.engine = engine
+        self.redis = redis
 
     # ---------------- Lobby ----------------
 
@@ -242,6 +249,28 @@ class CoreServiceServicer(core_pb2_grpc.CoreServiceServicer):
             return pb.SnapshotResp(ok=False, error_code="bad_request", message="missing username")
         sync = self.sessions.get_sync(username)
         return pb.SnapshotResp(ok=True, sync_json=_dump_sync(sync))
+
+    # ---------------- Bots ----------------
+
+    async def SyncBot(self, request: pb.SyncBotReq, context) -> pb.StatusResp:
+        name = request.name
+        logger.debug("SyncBot request: name=%s", name)
+        if not name:
+            return _err_raw("bad_request", "missing name")
+        # Reconcile engine pool (load if any bot has the engine on, unload if
+        # none). The in-memory engine-on set is refreshed from Redis here.
+        await self.engine.sync()
+        # If the bot is no longer available, drop it from every idle lobby.
+        try:
+            available = bool(
+                await self.redis.sismember(ACTIVE_SET_KEY, name)  # type: ignore[misc]
+            )
+        except Exception:
+            logger.exception("active_player check failed for %s", name)
+            available = True
+        if not available:
+            await self.lobbies.evict_bot_from_all_lobbies(name)
+        return _ok()
 
     # ---------------- Stats ----------------
 

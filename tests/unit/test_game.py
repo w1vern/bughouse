@@ -27,12 +27,14 @@ from services.core.game.models import (
     pos_to_color,
     team_of_pos,
 )
+from services.core.bots import BotRegistry
 from services.core.lobby.models import (
     Lobby,
     LobbyConfig,
     LobbyState,
     Seat
 )
+from shared.infrastructure import BotConfig
 from services.core.session import UserSessionIndex
 from shared.events import BughouseData, GameChatData
 from shared.infrastructure import RankingParams
@@ -397,7 +399,7 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
 
         # alice (board 0, white, pos 0) is a bot and should move on her own.
         self.users["alice"].is_bot = True
-        self.manager._move_policy = FixedMovePolicy()  # type: ignore[assignment]
+        self.manager._random_policy = FixedMovePolicy()  # type: ignore[assignment]
         self.manager._bot_move_delay_min = 0.0
         self.manager._bot_move_delay_max = 0.0
 
@@ -429,6 +431,54 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(game.moves), 1)
         self.assertEqual(game.moves[0].username, "dave")
         self.assertEqual(game.moves[0].board, 1)
+
+    async def test_env_bot_uses_engine_move_when_engine_on(self) -> None:
+        class FakeEngine:
+            def is_engine_on(self, name: str) -> bool:
+                return True
+
+            async def choose(self, *args: object) -> str:
+                return "e2e4"
+
+        # alice is an env bot (built from the registry, not the DB).
+        self.manager._bots = BotRegistry([BotConfig(name="alice", skill_level=7)])
+        self.manager._engine = FakeEngine()  # type: ignore[assignment]
+        self.manager._bot_move_delay_min = 0.0
+        self.manager._bot_move_delay_max = 0.0
+
+        game_id = await self.create_game()
+        await asyncio.sleep(0.02)
+
+        game = self.manager._games[game_id]
+        self.assertEqual(game.players[0].username, "alice")
+        self.assertTrue(game.players[0].is_bot)
+        self.assertEqual(game.players[0].skill_level, 7)
+        self.assertEqual(len(game.moves), 1)
+        self.assertEqual(game.moves[0].uci, "e2e4")
+        # Bots are not loaded from the DB, so no busy mark for alice.
+        self.assertEqual(self.notifier.busy, ["bob", "carol", "dave"])
+
+    async def test_env_bot_falls_back_to_random_when_engine_returns_none(self) -> None:
+        class FakeEngine:
+            def is_engine_on(self, name: str) -> bool:
+                return True
+
+            async def choose(self, *args: object) -> str | None:
+                return None
+
+        self.manager._bots = BotRegistry([BotConfig(name="alice", skill_level=2)])
+        self.manager._engine = FakeEngine()  # type: ignore[assignment]
+        self.manager._bot_move_delay_min = 0.0
+        self.manager._bot_move_delay_max = 0.0
+
+        game_id = await self.create_game()
+        await asyncio.sleep(0.02)
+
+        game = self.manager._games[game_id]
+        # A recorded move proves the random fallback produced a legal move.
+        self.assertEqual(len(game.moves), 1)
+        self.assertEqual(game.moves[0].username, "alice")
+        self.assertEqual(game.moves[0].board, 0)
 
     async def test_make_move_records_move_publishes_to_other_players_and_advances_turn(self) -> None:
         game_id = await self.create_game()

@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.database import (
     AuthProviderRepository,
-    BotRepository,
     GameRepository,
     UserRepository,
     session_manager
@@ -33,9 +32,3 @@ async def get_auth_provider_repo(
     session: AsyncSession = Depends(get_session)
 ) -> AuthProviderRepository:
     return AuthProviderRepository(session)
-
-
-async def get_bot_repo(
-    session: AsyncSession = Depends(get_session)
-) -> BotRepository:
-    return BotRepository(session)

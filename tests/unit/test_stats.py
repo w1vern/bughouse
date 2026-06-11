@@ -76,6 +76,8 @@ class CoreStatsTests(unittest.IsolatedAsyncioTestCase):
             SimpleNamespace(),
             FakeNotifier(),  # type: ignore[arg-type]
             SimpleNamespace(),
+            SimpleNamespace(),
+            SimpleNamespace(),
         )
 
         resp = await service.GetStats(pb.StatsReq(), None)

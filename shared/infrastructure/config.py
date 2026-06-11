@@ -54,14 +54,31 @@ class SuperUser(BaseModel):
     password: str = ""
 
 
-class BotsSettings(BaseModel):
+class BotConfig(BaseModel):
     model_config = SettingsConfigDict(
         populate_by_name=True)
 
-    count: int = 3
-    username_prefix: str = "bot"
-    email_domain: str = "bots.local"
-    password: str = "bot-password"
+    name: str
+    skill_level: int = 0
+    mu: float = 1500.0
+    sigma: float = 350.0
+
+
+class EngineSettings(BaseModel):
+    model_config = SettingsConfigDict(
+        populate_by_name=True)
+
+    # Path to the Fairy-Stockfish binary. Empty => engine disabled globally
+    # (bots always play random moves). Lets dev/tests run without the binary.
+    path: str = ""
+    pool_size: int = 1
+    # Safety ceiling for a single engine search, milliseconds.
+    max_think_ms: int = 1000
+
+
+# Engine settings are exposed as flat top-level Settings fields (ENGINE_PATH,
+# ENGINE_POOL_SIZE, ENGINE_MAX_THINK_MS) because env_nested_delimiter="_" cannot
+# bind nested fields whose names themselves contain underscores.
 
 
 class RankingParams(BaseModel):
@@ -113,7 +130,10 @@ class Settings(BaseSettings):
     redis: RedisSettings = RedisSettings()
     backend: BackendSettings = BackendSettings()
     superuser: SuperUser = SuperUser()
-    bots: BotsSettings = BotsSettings()
+    bots: list[BotConfig] = []
+    engine_path: str = ""
+    engine_pool_size: int = 1
+    engine_max_think_ms: int = 1000
     ranking: RankingParams = RankingParams()
     core: CoreSettings = CoreSettings()
     oauth: OAuthSettings = OAuthSettings()
@@ -121,6 +141,14 @@ class Settings(BaseSettings):
 
     base_url: str = "http://localhost:8000"
     frontend_url: str = "http://localhost:5173"
+
+    @property
+    def engine(self) -> EngineSettings:
+        return EngineSettings(
+            path=self.engine_path,
+            pool_size=self.engine_pool_size,
+            max_think_ms=self.engine_max_think_ms,
+        )
 
 
 env_config = Settings()

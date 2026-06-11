@@ -16,6 +16,8 @@ from shared.infrastructure import (
 )
 from shared.protobuf import core_pb2_grpc
 
+from .bots import BotRegistry
+from .bots.engine import BotEngine
 from .config import Config
 from .game.manager import GameManager
 from .invites import InviteManager
@@ -38,13 +40,20 @@ async def main() -> None:
     redis = get_redis_client(env_config.redis.backend)
     notifier = Notifier(redis)
 
-    lobby_mgr = LobbyManager(notifier=notifier, user_repo_factory=_user_repo_ctx)
+    bots = BotRegistry(env_config.bots)
+    engine = BotEngine(redis, env_config.engine)
+
+    lobby_mgr = LobbyManager(
+        notifier=notifier, user_repo_factory=_user_repo_ctx, bots=bots,
+    )
     game_mgr = GameManager(
         notifier=notifier,
         session_factory=session_manager.context_session,
         ranking=env_config.ranking,
         abort_timeout=Config.abort_timeout,
         lobby_mgr=lobby_mgr,
+        bots=bots,
+        engine=engine,
         bot_move_delay_min=Config.bot_move_delay_min,
         bot_move_delay_max=Config.bot_move_delay_max,
     )
@@ -55,6 +64,7 @@ async def main() -> None:
         user_repo_factory=_user_repo_ctx,
         tick=Config.queue_tick,
         ranking=env_config.ranking,
+        bots=bots,
     )
     sessions = UserSessionIndex(lobby_mgr, game_mgr)
     invite_mgr = InviteManager(
@@ -62,8 +72,11 @@ async def main() -> None:
         games=game_mgr,
         notifier=notifier,
         redis=redis,
-        user_repo_factory=_user_repo_ctx,
+        bots=bots,
     )
+
+    # Restore the engine pool state if bots already had it enabled.
+    await engine.sync()
 
     queue_mgr.start_loop()
 
@@ -71,6 +84,7 @@ async def main() -> None:
     core_pb2_grpc.add_CoreServiceServicer_to_server(
         CoreServiceServicer(
             lobby_mgr, queue_mgr, game_mgr, invite_mgr, notifier, sessions,
+            engine, redis,
         ),
         server,
     )
@@ -102,6 +116,9 @@ async def main() -> None:
 
         logger.info("Stopping gRPC server")
         await server.stop(grace=5)
+
+        logger.info("Shutting down engine pool")
+        await engine.shutdown()
 
         logger.info("Closing Redis and DB")
         await redis.aclose()

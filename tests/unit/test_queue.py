@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 import chess
 
+from services.core.bots import BotRegistry
 from services.core.game.models import pos_to_color
 from services.core.lobby.manager import LobbyManager
 from services.core.lobby.models import (
@@ -498,6 +499,7 @@ class QueueManagerTests(unittest.IsolatedAsyncioTestCase):
         lobby_mgr = LobbyManager(
             notifier=self.notifier,  # type: ignore[arg-type]
             user_repo_factory=self.user_repo_factory,  # type: ignore[arg-type]
+            bots=BotRegistry([]),
         )
         lobby_mgr._lobbies[lobby.id] = lobby
         lobby_mgr._user_to_lobby["alice"] = lobby.id

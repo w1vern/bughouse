@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 from shared.database.repositories.user import UserRepository
 from shared.infrastructure import setup_logger
 
+from ..bots import BotRegistry
 from ..notifier import Notifier
 from .errors import LobbyError
 from .models import Lobby, LobbyConfig, LobbyState, Seat
@@ -21,11 +22,13 @@ class LobbyManager:
         self,
         notifier: Notifier,
         user_repo_factory: UserRepoFactory,
+        bots: BotRegistry,
     ) -> None:
         self._lobbies: dict[UUID, Lobby] = {}
         self._user_to_lobby: dict[str, UUID] = {}
         self._notifier = notifier
         self._user_repo_factory = user_repo_factory
+        self._bots = bots
 
     # ---------------- Queries ----------------
 
@@ -168,6 +171,27 @@ class LobbyManager:
         await self._notifier.publish_player_leave(lobby, pos, "kick")
         return lobby
 
+    async def evict_bot_from_all_lobbies(self, bot_username: str) -> None:
+        """Remove a (now-disabled) bot from every idle lobby it occupies.
+
+        Lobbies that are queued or in a game are left untouched — the game
+        finishes normally (the bot just plays random moves once its engine is
+        off). Dissolves any lobby that loses its last human as a result.
+        """
+        for lobby in list(self._lobbies.values()):
+            if lobby.state != LobbyState.IDLE:
+                continue
+            removed = False
+            for i, s in enumerate(lobby.seats):
+                if s is not None and s.is_bot and s.username == bot_username:
+                    lobby.seats[i] = None
+                    removed = True
+                    await self._notifier.publish_player_leave(lobby, i, "kick")
+            if not removed:
+                continue
+            if not lobby.has_human:
+                del self._lobbies[lobby.id]
+
     async def kick(self, leader_username: str, target: str) -> Lobby | None:
         lobby_id = self._user_to_lobby.get(leader_username)
         if lobby_id is None:
@@ -257,6 +281,9 @@ class LobbyManager:
             raise LobbyError.bad_config("incr must be non-negative")
 
     async def _load_seat(self, username: str) -> Seat:
+        cfg = self._bots.get(username)
+        if cfg is not None:
+            return Seat(username=cfg.name, rating=cfg.mu, is_bot=True)
         async with self._user_repo_factory() as repo:
             user = await repo.get_by_username(username)
         if user is None:

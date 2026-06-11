@@ -12,10 +12,17 @@ import chess
 import trueskill
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.database import GameRepository, User, UserRepository
+from shared.database import (
+    BOT_USER_IDS,
+    GameRepository,
+    User,
+    UserRepository,
+)
 from shared.events import GameChatData
 from shared.infrastructure import RankingParams, setup_logger
 
+from ..bots import BotRegistry
+from ..bots.engine import BotEngine
 from ..lobby.models import Lobby, LobbyConfig, Seat
 from ..notifier import Notifier, result_status
 from .board import BughouseBoards
@@ -34,7 +41,7 @@ from .models import (
     pos_to_color,
     team_of_pos,
 )
-from .move_policy import MovePolicy, RandomMovePolicy
+from .move_policy import RandomMovePolicy
 from .state import build_bughouse
 
 logger = setup_logger(__name__)
@@ -63,7 +70,8 @@ class GameManager:
         ranking: RankingParams,
         abort_timeout: float,
         lobby_mgr: _LobbyManagerProto | None = None,
-        move_policy: MovePolicy | None = None,
+        bots: BotRegistry | None = None,
+        engine: BotEngine | None = None,
         bot_move_delay_min: float = 400.0,
         bot_move_delay_max: float = 1200.0,
     ) -> None:
@@ -75,7 +83,9 @@ class GameManager:
         self._abort_timeout = abort_timeout
         self._abort_tasks: dict[tuple[UUID, int], asyncio.Task[None]] = {}
         self._lobby_mgr: _LobbyManagerProto | None = lobby_mgr
-        self._move_policy: MovePolicy = move_policy or RandomMovePolicy()
+        self._bots = bots or BotRegistry([])
+        self._engine = engine
+        self._random_policy = RandomMovePolicy()
         self._bot_move_delay_min = bot_move_delay_min
         self._bot_move_delay_max = bot_move_delay_max
         self._bot_tasks: dict[tuple[UUID, int], asyncio.Task[None]] = {}
@@ -114,6 +124,20 @@ class GameManager:
             user_repo = UserRepository(session)
             players_list: list[PlayerRef] = []
             for seat, lobby_id in zip(seats, lobby_ids):
+                cfg = self._bots.get(seat.username)
+                if cfg is not None:
+                    # Bots are not real users; build from env config, no DB load.
+                    players_list.append(
+                        PlayerRef(
+                            username=cfg.name,
+                            rating_before=cfg.mu,
+                            sigma_before=cfg.sigma,
+                            lobby_id=lobby_id,
+                            is_bot=True,
+                            skill_level=cfg.skill_level,
+                        )
+                    )
+                    continue
                 user = await user_repo.get_by_username(seat.username)
                 if user is None:
                     raise GameError("user_not_found", f"user {seat.username}")
@@ -396,13 +420,43 @@ class GameManager:
         player = game.players[pos]
         if not player.is_bot:
             return
-        uci = self._move_policy.choose(game.boards.boards[board_idx])
+        uci = await self._choose_bot_move(game, player, board_idx)
         if uci is None:
             return
         try:
             await self._apply_move(game, player.username, pos, board_idx, uci)
         except GameError:
             logger.exception("bot move failed for game %s board %s", game_id, board_idx)
+
+    async def _choose_bot_move(
+        self,
+        game: GameObj,
+        player: PlayerRef,
+        board_idx: int,
+    ) -> str | None:
+        """Engine move if the engine is on for this bot and loaded, else random.
+
+        Engine on/off is decided live at move time (the in-memory set is kept in
+        sync over gRPC), so toggling it takes effect from the next move. A move
+        already handed to the engine completes and is applied.
+        """
+        board = game.boards.boards[board_idx]
+        if self._engine is not None and self._engine.is_engine_on(player.username):
+            color = game.boards.turn(board_idx)
+            snap = game.clocks.snapshot()
+            white_ms = snap[f"b{board_idx}w"]
+            black_ms = snap[f"b{board_idx}b"]
+            uci = await self._engine.choose(
+                player.username,
+                player.skill_level,
+                board,
+                white_ms,
+                black_ms,
+                game.config.incr,
+            )
+            if uci is not None:
+                return uci
+        return self._random_policy.choose(board)
 
     async def _abort_watchdog(
         self,
@@ -497,7 +551,17 @@ class GameManager:
             game_repo = GameRepository(session)
 
             users: list[User] = []
+            bot_seat = 0
             for p in game.players:
+                if p.is_bot:
+                    # Bots have no real user row; persist under a reserved
+                    # foreign-key-target user (distinct per bot seat).
+                    u = await user_repo.get_by_id(BOT_USER_IDS[bot_seat])
+                    bot_seat += 1
+                    if u is None:
+                        raise GameError("user_not_found", f"bot user {bot_seat}")
+                    users.append(u)
+                    continue
                 u = await user_repo.get_by_username(p.username)
                 if u is None:
                     raise GameError("user_not_found", f"user {p.username}")

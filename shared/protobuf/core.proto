@@ -25,6 +25,10 @@ service CoreService {
 
   // Stats
   rpc GetStats(StatsReq)            returns (StatsResp);
+
+  // Bots — backend toggles availability/engine in Redis, then nudges core to
+  // reconcile (evict disabled bot from lobbies, (un)load the engine pool).
+  rpc SyncBot(SyncBotReq)           returns (StatusResp);
 }
 
 // ---------- Refs / requests ----------
@@ -52,6 +56,7 @@ message SendInviteReq    { string sender = 1; string receiver = 2; int32 idx = 3
 message AcceptInviteReq  { string receiver = 1; string sender = 2; }
 message RejectInviteReq  { string receiver = 1; string sender = 2; }
 message StatsReq         {}
+message SyncBotReq       { string name = 1; }
 
 // ---------- Responses ----------
 message StatusResp {

@@ -8,12 +8,13 @@ from redis.asyncio import Redis
 
 from shared.infrastructure import setup_logger
 
+from .bots import BotRegistry
 from .config import Config
 from .game.manager import GameManager
 from .lobby.errors import LobbyError
-from .lobby.manager import LobbyManager, UserRepoFactory
+from .lobby.manager import LobbyManager
 from .lobby.models import LobbyState
-from .notifier import ONLINE_KEY_PREFIX, Notifier
+from .notifier import ACTIVE_SET_KEY, ONLINE_KEY_PREFIX, Notifier
 
 logger = setup_logger(__name__)
 
@@ -34,7 +35,7 @@ class InviteManager:
         games: GameManager,
         notifier: Notifier,
         redis: Redis,
-        user_repo_factory: UserRepoFactory,
+        bots: BotRegistry,
         ttl: float = Config.invite_ttl,
     ) -> None:
         self._invites: dict[tuple[str, str], Invite] = {}
@@ -42,7 +43,7 @@ class InviteManager:
         self._games = games
         self._notifier = notifier
         self._redis = redis
-        self._user_repo_factory = user_repo_factory
+        self._bots = bots
         self._ttl = ttl
 
     async def send(self, sender: str, receiver: str, idx: int) -> None:
@@ -141,8 +142,12 @@ class InviteManager:
             return False
 
     async def _is_enabled_bot(self, username: str) -> bool:
-        async with self._user_repo_factory() as repo:
-            user = await repo.get_by_username(username)
-        if user is None or not user.is_bot:
+        if not self._bots.is_bot(username):
             return False
-        return user.bot is not None and user.bot.enabled
+        try:
+            return bool(
+                await self._redis.sismember(ACTIVE_SET_KEY, username)  # type: ignore[misc]
+            )
+        except Exception:
+            logger.exception("active_player check failed for %s", username)
+            return False

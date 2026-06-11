@@ -12,6 +12,7 @@ from shared.database.repositories.user import UserRepository
 from shared.infrastructure import setup_logger
 from shared.infrastructure.config import RankingParams
 
+from ..bots import BotRegistry
 from ..lobby.models import Lobby, LobbyConfig, LobbyState, Seat
 from ..notifier import Notifier
 from .errors import QueueError
@@ -52,6 +53,7 @@ class QueueManager:
         user_repo_factory: UserRepoFactory,
         tick: float,
         ranking: RankingParams,
+        bots: BotRegistry | None = None,
     ) -> None:
         self._entries: dict[UUID, QueueEntry] = {}
         self._tick = tick
@@ -61,6 +63,7 @@ class QueueManager:
         self._notifier = notifier
         self._user_repo_factory = user_repo_factory
         self._ranking = ranking
+        self._bots = bots or BotRegistry([])
 
     def get(self, lobby_id: UUID) -> QueueEntry | None:
         return self._entries.get(lobby_id)
@@ -94,6 +97,12 @@ class QueueManager:
         async with self._user_repo_factory() as repo:
             for i, seat in enumerate(lobby.seats):
                 if seat is None:
+                    continue
+                cfg = self._bots.get(seat.username)
+                if cfg is not None:
+                    # Bots are not real users; take sigma from env, neutral color.
+                    sigmas[i] = cfg.sigma
+                    colors[i] = 0
                     continue
                 user = await repo.get_by_username(seat.username)
                 if user is None:

@@ -1,5 +1,6 @@
 
 import secrets
+from uuid import UUID
 
 import bcrypt
 from sqlalchemy import select
@@ -59,17 +60,23 @@ class UserRepository(BaseRepository[User]):
         password: str,
         rating: float,
         sigma: float,
-        color: int
+        color: int,
+        id: UUID | None = None,
+        is_bot: bool = False
     ) -> User:
-        return await self._create(
+        kwargs = dict(
             email=email,
             username=username,
             password_hash=self._get_hash(password),
             rating=rating,
             sigma=sigma,
             color=color,
-            secret=secrets.token_urlsafe()
+            secret=secrets.token_urlsafe(),
+            is_bot=is_bot
         )
+        if id is not None:
+            kwargs["id"] = id
+        return await self._create(**kwargs)
 
     async def get_by_email(
         self,

@@ -1,6 +1,4 @@
 
-from uuid import UUID
-
 from fastapi import APIRouter, Depends
 
 from ..schemas import BotSchema, EditBotSchema
@@ -20,12 +18,12 @@ async def get_all(
 
 
 @router.patch(
-    path="/{id}",
-    description="Enable/disable a bot and tune engine settings (superadmin only)"
+    path="/{name}",
+    description="Enable/disable a bot and its engine (superadmin only)"
 )
 async def update(
-    id: UUID,
+    name: str,
     edit: EditBotSchema,
     bot_service: BotService = Depends(BotService.depends)
 ) -> BotSchema:
-    return await bot_service.update(id, edit)
+    return await bot_service.update(name, edit)
