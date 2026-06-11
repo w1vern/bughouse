@@ -68,17 +68,9 @@ class EngineSettings(BaseModel):
     model_config = SettingsConfigDict(
         populate_by_name=True)
 
-    # The Fairy-Stockfish binary lives at a fixed path baked into the image
-    # (see Dockerfile / services/core/bots/engine.py), so only the tunables are
-    # configurable here.
     pool_size: int = 1
-    # Safety ceiling for a single engine search, milliseconds.
     max_think_ms: int = 1000
 
-
-# Engine tunables are exposed as flat top-level Settings fields
-# (ENGINE_POOL_SIZE, ENGINE_MAX_THINK_MS) because env_nested_delimiter="_"
-# cannot bind nested fields whose names themselves contain underscores.
 
 
 class RankingParams(BaseModel):

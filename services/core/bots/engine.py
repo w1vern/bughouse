@@ -181,12 +181,21 @@ class BotEngine:
             # All workers busy — fall back to random for this move.
             return None
 
+        # Drive the engine from a stackless copy so python-chess sends the full
+        # position as a FEN (`position fen ...[pocket]...`) instead of a move
+        # list. In bughouse the pockets are fed across the two boards, so they
+        # do not match a crazyhouse replay of this board's own moves; a move
+        # list would desync the engine's pockets from reality and make it return
+        # illegal or nonsense moves (and silently fall back to random). The FEN
+        # carries the true pockets, so the engine sees the real position.
+        search_board = board.copy(stack=False)
+
         budget_s = max(0.05, think_time_s)
         healthy = False
         try:
             result = await asyncio.wait_for(
                 engine.play(
-                    board,
+                    search_board,
                     chess.engine.Limit(time=budget_s),
                     options={"Skill Level": int(skill_level)},
                 ),

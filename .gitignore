@@ -1,7 +1,6 @@
 
 .venv/
 __pycache__/
-.claude/
 *.env
 
 .vscode/
@@ -16,4 +15,4 @@ openapi.json
 ws-docs.json
 *.ts
 
-test.py
+/*.py
