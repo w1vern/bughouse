@@ -54,6 +54,16 @@ class SuperUser(BaseModel):
     password: str = ""
 
 
+class BotsSettings(BaseModel):
+    model_config = SettingsConfigDict(
+        populate_by_name=True)
+
+    count: int = 3
+    username_prefix: str = "bot"
+    email_domain: str = "bots.local"
+    password: str = "bot-password"
+
+
 class RankingParams(BaseModel):
     model_config = SettingsConfigDict(
         populate_by_name=True)
@@ -103,6 +113,7 @@ class Settings(BaseSettings):
     redis: RedisSettings = RedisSettings()
     backend: BackendSettings = BackendSettings()
     superuser: SuperUser = SuperUser()
+    bots: BotsSettings = BotsSettings()
     ranking: RankingParams = RankingParams()
     core: CoreSettings = CoreSettings()
     oauth: OAuthSettings = OAuthSettings()

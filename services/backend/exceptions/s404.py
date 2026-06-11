@@ -17,6 +17,11 @@ class GameNotFoundException(BaseNotFoundException):
         super().__init__(detail="Game not found")
 
 
+class BotNotFoundException(BaseNotFoundException):
+    def __init__(self) -> None:
+        super().__init__(detail="Bot not found")
+
+
 class OAuthProviderNotSupportedException(BaseNotFoundException):
     def __init__(self, provider: str) -> None:
         super().__init__(detail=f"OAuth provider '{provider}' is not supported")

@@ -99,7 +99,10 @@ class LobbyManager:
         if kicked:
             await self._notifier.publish_lobby_kicked(username)
 
-        if lobby.size == 0:
+        # A lobby only lives while at least one human is seated. Bots never
+        # keep it alive on their own, so when the last human leaves we dissolve
+        # it and drop any remaining bot seats.
+        if not lobby.has_human:
             del self._lobbies[lobby.id]
             return None
 
@@ -115,6 +118,56 @@ class LobbyManager:
             await self._notifier.publish_lobby_full_state(lobby)
         return lobby
 
+    async def add_bot(
+        self,
+        lobby_id: UUID,
+        bot_username: str,
+        idx: int,
+    ) -> Lobby:
+        """Seat a bot into a free slot.
+
+        Bots are exempt from the single-lobby/busy bookkeeping (the same bot may
+        be seated in many lobbies at once), so we never touch ``_user_to_lobby``
+        or mark it busy. Leader/idle checks are performed by the caller
+        (InviteManager), which is the only entry point for seating bots.
+        """
+        lobby = self._require_lobby(lobby_id)
+        self._ensure_mutable(lobby)
+        if idx not in (0, 1, 2, 3):
+            raise LobbyError.seat_out_of_range()
+        if lobby.seats[idx] is not None:
+            raise LobbyError.seat_occupied()
+        if lobby.config.rated:
+            raise LobbyError.rated_with_bot()
+        if any(s is not None and s.username == bot_username for s in lobby.seats):
+            raise LobbyError.bot_already_seated()
+        seat = await self._load_seat(bot_username)
+        if not seat.is_bot:
+            raise LobbyError.not_a_bot()
+        lobby.seats[idx] = seat
+        await self._notifier.publish_player_slot_update(
+            lobby, idx, seat, exclude=bot_username,
+        )
+        return lobby
+
+    async def remove_bot(self, leader_username: str, bot_username: str) -> Lobby:
+        lobby_id = self._user_to_lobby.get(leader_username)
+        if lobby_id is None:
+            raise LobbyError.user_not_in_lobby()
+        lobby = self._require_lobby(lobby_id)
+        self._ensure_mutable(lobby)
+        self._ensure_leader(lobby, leader_username)
+        pos: int | None = None
+        for i, s in enumerate(lobby.seats):
+            if s is not None and s.is_bot and s.username == bot_username:
+                pos = i
+                break
+        if pos is None:
+            raise LobbyError.target_not_in_lobby()
+        lobby.seats[pos] = None
+        await self._notifier.publish_player_leave(lobby, pos, "kick")
+        return lobby
+
     async def kick(self, leader_username: str, target: str) -> Lobby | None:
         lobby_id = self._user_to_lobby.get(leader_username)
         if lobby_id is None:
@@ -124,8 +177,12 @@ class LobbyManager:
         self._ensure_leader(lobby, leader_username)
         if target == leader_username:
             raise LobbyError.cannot_kick_self()
-        if lobby.seat_of(target) is None:
+        pos = lobby.seat_of(target)
+        if pos is None:
             raise LobbyError.target_not_in_lobby()
+        seat = lobby.seats[pos]
+        if seat is not None and seat.is_bot:
+            return await self.remove_bot(leader_username, target)
         return await self.leave(target, kicked=True)
 
     async def set_config(
@@ -186,8 +243,10 @@ class LobbyManager:
             raise LobbyError.not_leader()
 
     def _assign_new_leader(self, lobby: Lobby) -> None:
+        # Bots can never lead a lobby; pick the first human seat. Callers only
+        # reach here when at least one human remains.
         for s in lobby.seats:
-            if s is not None:
+            if s is not None and not s.is_bot:
                 lobby.leader = s.username
                 return
 
@@ -202,4 +261,4 @@ class LobbyManager:
             user = await repo.get_by_username(username)
         if user is None:
             raise LobbyError.user_not_found()
-        return Seat(username=user.username, rating=user.rating)
+        return Seat(username=user.username, rating=user.rating, is_bot=user.is_bot)

@@ -4,6 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from shared.database import User
+from shared.infrastructure import env_config
 
 
 class UserTokenSchema(BaseModel):
@@ -24,6 +25,7 @@ class UserSchema(BaseModel):
     username: str
     rating: float
     sigma: float
+    is_superadmin: bool
 
     @classmethod
     def from_db(cls, user: User) -> "UserSchema":
@@ -32,7 +34,8 @@ class UserSchema(BaseModel):
             email=user.email,
             username=user.username,
             rating=user.rating,
-            sigma=user.sigma
+            sigma=user.sigma,
+            is_superadmin=user.username == env_config.superuser.username
         )
 
 

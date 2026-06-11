@@ -45,6 +45,8 @@ async def main() -> None:
         ranking=env_config.ranking,
         abort_timeout=Config.abort_timeout,
         lobby_mgr=lobby_mgr,
+        bot_move_delay_min=Config.bot_move_delay_min,
+        bot_move_delay_max=Config.bot_move_delay_max,
     )
     queue_mgr = QueueManager(
         lobby_mgr=lobby_mgr,
@@ -60,6 +62,7 @@ async def main() -> None:
         games=game_mgr,
         notifier=notifier,
         redis=redis,
+        user_repo_factory=_user_repo_ctx,
     )
 
     queue_mgr.start_loop()

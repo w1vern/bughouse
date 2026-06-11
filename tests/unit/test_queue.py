@@ -50,12 +50,14 @@ def make_user(
     rating: float = 25.0,
     sigma: float = 8.333,
     color: int = 0,
+    is_bot: bool = False,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         username=username,
         rating=rating,
         sigma=sigma,
         color=color,
+        is_bot=is_bot,
     )
 
 

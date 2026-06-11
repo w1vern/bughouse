@@ -84,6 +84,7 @@ class PlayerRef:
     rating_before: float
     sigma_before: float
     lobby_id: UUID | None = None
+    is_bot: bool = False
 
 
 @dataclass(slots=True)

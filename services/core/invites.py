@@ -11,7 +11,7 @@ from shared.infrastructure import setup_logger
 from .config import Config
 from .game.manager import GameManager
 from .lobby.errors import LobbyError
-from .lobby.manager import LobbyManager
+from .lobby.manager import LobbyManager, UserRepoFactory
 from .lobby.models import LobbyState
 from .notifier import ONLINE_KEY_PREFIX, Notifier
 
@@ -34,6 +34,7 @@ class InviteManager:
         games: GameManager,
         notifier: Notifier,
         redis: Redis,
+        user_repo_factory: UserRepoFactory,
         ttl: float = Config.invite_ttl,
     ) -> None:
         self._invites: dict[tuple[str, str], Invite] = {}
@@ -41,6 +42,7 @@ class InviteManager:
         self._games = games
         self._notifier = notifier
         self._redis = redis
+        self._user_repo_factory = user_repo_factory
         self._ttl = ttl
 
     async def send(self, sender: str, receiver: str, idx: int) -> None:
@@ -58,6 +60,14 @@ class InviteManager:
             raise LobbyError.cannot_modify_while_in_queue()
         if lobby.seats[idx] is not None:
             raise LobbyError.seat_occupied()
+
+        # Bots have no ws session and can't accept an invite, so an invite to an
+        # enabled bot seats it immediately (and the same bot may join many
+        # lobbies). Disabled bots fall through to the regular path, which fails
+        # the online check below.
+        if await self._is_enabled_bot(receiver):
+            await self._lobbies.add_bot(lobby.id, receiver, idx)
+            return
 
         if self._lobbies.get_by_user(receiver) is not None:
             raise LobbyError.invite_target_busy()
@@ -129,3 +139,10 @@ class InviteManager:
         except Exception:
             logger.exception("ws:online check failed for %s", username)
             return False
+
+    async def _is_enabled_bot(self, username: str) -> bool:
+        async with self._user_repo_factory() as repo:
+            user = await repo.get_by_username(username)
+        if user is None or not user.is_bot:
+            return False
+        return user.bot is not None and user.bot.enabled

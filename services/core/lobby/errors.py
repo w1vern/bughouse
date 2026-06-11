@@ -18,6 +18,9 @@ ERR_INVITE_TARGET_BUSY = "invite_target_busy"
 ERR_INVITE_TARGET_OFFLINE = "invite_target_offline"
 ERR_INVITE_NOT_FOUND = "invite_not_found"
 ERR_INVITE_SELF = "invite_self"
+ERR_BOT_ALREADY_SEATED = "bot_already_seated"
+ERR_NOT_A_BOT = "not_a_bot"
+ERR_RATED_WITH_BOT = "rated_with_bot"
 
 
 class LobbyError(_BaseLobbyError):
@@ -87,3 +90,15 @@ class LobbyError(_BaseLobbyError):
     @classmethod
     def invite_self(cls) -> "LobbyError":
         return cls(ERR_INVITE_SELF, "Cannot invite yourself")
+
+    @classmethod
+    def bot_already_seated(cls) -> "LobbyError":
+        return cls(ERR_BOT_ALREADY_SEATED, "This bot is already seated in the lobby")
+
+    @classmethod
+    def not_a_bot(cls) -> "LobbyError":
+        return cls(ERR_NOT_A_BOT, "Target user is not a bot")
+
+    @classmethod
+    def rated_with_bot(cls) -> "LobbyError":
+        return cls(ERR_RATED_WITH_BOT, "Bots can only play unrated games")

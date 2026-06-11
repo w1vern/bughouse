@@ -9,6 +9,7 @@ from uuid import UUID
 class Seat:
     username: str
     rating: float
+    is_bot: bool = False
 
 
 @dataclass(slots=True)
@@ -35,6 +36,18 @@ class Lobby:
     @property
     def usernames(self) -> list[str]:
         return [s.username for s in self.seats if s is not None]
+
+    @property
+    def human_usernames(self) -> list[str]:
+        return [s.username for s in self.seats if s is not None and not s.is_bot]
+
+    @property
+    def has_human(self) -> bool:
+        return any(s is not None and not s.is_bot for s in self.seats)
+
+    @property
+    def has_bot(self) -> bool:
+        return any(s is not None and s.is_bot for s in self.seats)
 
     @property
     def size(self) -> int:

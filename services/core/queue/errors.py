@@ -7,6 +7,8 @@ ERR_NOT_IN_QUEUE = "not_in_queue"
 ERR_BAD_LOBBY_SIZE = "bad_lobby_size"
 ERR_BAD_LOBBY_STATE = "bad_lobby_state"
 ERR_RATED_THREE_PLAYERS = "rated_three_players"
+ERR_BOTS_REQUIRE_FULL_LOBBY = "bots_require_full_lobby"
+ERR_BOTS_UNRATED_ONLY = "bots_unrated_only"
 
 
 class QueueError(_BaseQueueError):
@@ -32,3 +34,11 @@ class QueueError(_BaseQueueError):
     @classmethod
     def rated_three_players(cls) -> "QueueError":
         return cls(ERR_RATED_THREE_PLAYERS, "Rated matches require 1, 2 or 4 players")
+
+    @classmethod
+    def bots_require_full_lobby(cls) -> "QueueError":
+        return cls(ERR_BOTS_REQUIRE_FULL_LOBBY, "Lobbies with bots must be full (4 players)")
+
+    @classmethod
+    def bots_unrated_only(cls) -> "QueueError":
+        return cls(ERR_BOTS_UNRATED_ONLY, "Lobbies with bots can only play unrated games")

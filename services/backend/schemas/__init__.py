@@ -1,4 +1,5 @@
 
+from .bot import BotSchema, EditBotSchema
 from .game import GameSchema, GameUserSchema, MoveSchema
 from .oauth import (
     OAuthCompleteSchema,

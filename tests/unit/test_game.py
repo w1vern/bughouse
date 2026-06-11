@@ -45,13 +45,20 @@ from shared.infrastructure import RankingParams
 PLAYER_NAMES = ("alice", "bob", "carol", "dave")
 
 
-def make_user(username: str, *, rating: float = 25.0, sigma: float = 8.333) -> SimpleNamespace:
+def make_user(
+    username: str,
+    *,
+    rating: float = 25.0,
+    sigma: float = 8.333,
+    is_bot: bool = False,
+) -> SimpleNamespace:
     return SimpleNamespace(
         id=uuid4(),
         username=username,
         rating=rating,
         sigma=sigma,
         color=0,
+        is_bot=is_bot,
     )
 
 
@@ -328,11 +335,14 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         for patcher in reversed(self._patches):
             patcher.stop()
 
-        abort_tasks = list(self.manager._abort_tasks.values())
-        for task in abort_tasks:
+        pending_tasks = [
+            *self.manager._abort_tasks.values(),
+            *self.manager._bot_tasks.values(),
+        ]
+        for task in pending_tasks:
             task.cancel()
-        if abort_tasks:
-            await asyncio.gather(*abort_tasks, return_exceptions=True)
+        if pending_tasks:
+            await asyncio.gather(*pending_tasks, return_exceptions=True)
 
         for game in list(self.manager._games.values()):
             await game.clocks.shutdown()
@@ -379,6 +389,46 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bughouse.chat, [])
         self.assertNotIn('"pocket"', bughouse.model_dump_json(by_alias=True))
         self.assertIs(self.manager.get_game_by_user("carol"), game)
+
+    async def test_bot_player_moves_automatically_and_skips_busy_bookkeeping(self) -> None:
+        class FixedMovePolicy:
+            def choose(self, board: object) -> str:
+                return "e2e4"
+
+        # alice (board 0, white, pos 0) is a bot and should move on her own.
+        self.users["alice"].is_bot = True
+        self.manager._move_policy = FixedMovePolicy()  # type: ignore[assignment]
+        self.manager._bot_move_delay_min = 0.0
+        self.manager._bot_move_delay_max = 0.0
+
+        game_id = await self.create_game()
+        await asyncio.sleep(0.02)
+
+        game = self.manager._games[game_id]
+        self.assertEqual(len(game.moves), 1)
+        self.assertEqual(game.moves[0].username, "alice")
+        self.assertEqual(game.moves[0].uci, "e2e4")
+        # Bots are exempt from the single-game map and busy bookkeeping.
+        self.assertNotIn("alice", self.manager._user_to_game)
+        self.assertEqual(self.notifier.busy, ["bob", "carol", "dave"])
+        # The reply is now black's (carol, human) — no further bot move queued.
+        self.assertFalse(game.is_turn_of("alice"))
+        self.assertTrue(game.is_turn_of("carol"))
+
+    async def test_random_bot_move_is_always_legal(self) -> None:
+        # Default RandomMovePolicy: a recorded move proves it was legal, since
+        # an illegal push would raise and be swallowed without recording.
+        self.users["dave"].is_bot = True  # board 1, white, pos 3
+        self.manager._bot_move_delay_min = 0.0
+        self.manager._bot_move_delay_max = 0.0
+
+        game_id = await self.create_game()
+        await asyncio.sleep(0.02)
+
+        game = self.manager._games[game_id]
+        self.assertEqual(len(game.moves), 1)
+        self.assertEqual(game.moves[0].username, "dave")
+        self.assertEqual(game.moves[0].board, 1)
 
     async def test_make_move_records_move_publishes_to_other_players_and_advances_turn(self) -> None:
         game_id = await self.create_game()

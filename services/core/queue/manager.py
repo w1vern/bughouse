@@ -83,6 +83,11 @@ class QueueManager:
             raise QueueError.bad_lobby_size()
         if size == 3 and lobby.config.rated:
             raise QueueError.rated_three_players()
+        if lobby.has_bot:
+            if size != 4:
+                raise QueueError.bots_require_full_lobby()
+            if lobby.config.rated:
+                raise QueueError.bots_unrated_only()
 
         sigmas: list[float | None] = [None, None, None, None]
         colors: list[int | None] = [None, None, None, None]

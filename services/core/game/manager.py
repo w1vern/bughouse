@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 import time
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
@@ -33,6 +34,7 @@ from .models import (
     pos_to_color,
     team_of_pos,
 )
+from .move_policy import MovePolicy, RandomMovePolicy
 from .state import build_bughouse
 
 logger = setup_logger(__name__)
@@ -61,6 +63,9 @@ class GameManager:
         ranking: RankingParams,
         abort_timeout: float,
         lobby_mgr: _LobbyManagerProto | None = None,
+        move_policy: MovePolicy | None = None,
+        bot_move_delay_min: float = 400.0,
+        bot_move_delay_max: float = 1200.0,
     ) -> None:
         self._games: dict[UUID, GameObj] = {}
         self._user_to_game: dict[str, UUID] = {}
@@ -70,6 +75,10 @@ class GameManager:
         self._abort_timeout = abort_timeout
         self._abort_tasks: dict[tuple[UUID, int], asyncio.Task[None]] = {}
         self._lobby_mgr: _LobbyManagerProto | None = lobby_mgr
+        self._move_policy: MovePolicy = move_policy or RandomMovePolicy()
+        self._bot_move_delay_min = bot_move_delay_min
+        self._bot_move_delay_max = bot_move_delay_max
+        self._bot_tasks: dict[tuple[UUID, int], asyncio.Task[None]] = {}
         self._ts = trueskill.TrueSkill(
             mu=ranking.mu,
             sigma=ranking.sigma,
@@ -114,6 +123,7 @@ class GameManager:
                         rating_before=user.rating,
                         sigma_before=user.sigma,
                         lobby_id=lobby_id,
+                        is_bot=user.is_bot,
                     )
                 )
 
@@ -136,6 +146,10 @@ class GameManager:
         )
         self._games[game.id] = game
         for p in players:
+            # Bots can be in many games at once, so they are exempt from the
+            # single-game map and from busy/idle bookkeeping.
+            if p.is_bot:
+                continue
             self._user_to_game[p.username] = game.id
             await self._notifier.mark_busy(p.username)
 
@@ -143,6 +157,9 @@ class GameManager:
             self._arm_auto_abort(game, board_idx)
 
         await self._notifier.publish_game_start(game.usernames, build_bughouse(game))
+
+        for board_idx in (0, 1):
+            self._maybe_schedule_bot(game, board_idx)
 
         return game.id
 
@@ -165,6 +182,17 @@ class GameManager:
         if game.boards.turn(board_idx) != expected_color:
             raise GameError.not_your_turn()
 
+        await self._apply_move(game, username, pos, board_idx, uci)
+
+    async def _apply_move(
+        self,
+        game: GameObj,
+        username: str,
+        pos: int,
+        board_idx: int,
+        uci: str,
+    ) -> None:
+        """Apply an already-turn-validated move (used by humans and bots)."""
         board_moves_before = _board_move_count(game, board_idx)
 
         try:
@@ -209,6 +237,9 @@ class GameManager:
             await game.clocks.start(board_idx, next_color, self._make_flag_cb(game.id))
 
         await self._publish_move(game, board_idx, uci, exclude=username)
+
+        # If the side now to move on this board is a bot, schedule its reply.
+        self._maybe_schedule_bot(game, board_idx)
 
     async def send_chat(self, username: str, text: str) -> None:
         game = self.get_game_by_user(username)
@@ -324,6 +355,55 @@ class GameManager:
         for board_idx in (0, 1):
             self._clear_auto_abort(game, board_idx)
 
+    # ---------------- Bot moves ----------------
+
+    def _maybe_schedule_bot(self, game: GameObj, board_idx: int) -> None:
+        if game.finished:
+            return
+        color = game.boards.turn(board_idx)
+        pos = pos_for(board_idx, color, game.color_flip)
+        if not game.players[pos].is_bot:
+            return
+        self._clear_bot_task(game.id, board_idx)
+        self._bot_tasks[(game.id, board_idx)] = asyncio.create_task(
+            self._bot_move(game.id, board_idx, pos)
+        )
+
+    def _clear_bot_task(self, game_id: UUID, board_idx: int) -> None:
+        task = self._bot_tasks.pop((game_id, board_idx), None)
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+
+    def _clear_all_bot_tasks(self, game: GameObj) -> None:
+        for board_idx in (0, 1):
+            self._clear_bot_task(game.id, board_idx)
+
+    async def _bot_move(self, game_id: UUID, board_idx: int, pos: int) -> None:
+        delay = random.uniform(
+            self._bot_move_delay_min, self._bot_move_delay_max
+        ) / 1000.0
+        try:
+            await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            return
+        game = self._games.get(game_id)
+        if game is None or game.finished:
+            return
+        # Re-validate: it must still be this bot's turn on this board.
+        color = game.boards.turn(board_idx)
+        if pos_for(board_idx, color, game.color_flip) != pos:
+            return
+        player = game.players[pos]
+        if not player.is_bot:
+            return
+        uci = self._move_policy.choose(game.boards.boards[board_idx])
+        if uci is None:
+            return
+        try:
+            await self._apply_move(game, player.username, pos, board_idx, uci)
+        except GameError:
+            logger.exception("bot move failed for game %s board %s", game_id, board_idx)
+
     async def _abort_watchdog(
         self,
         game_id: UUID,
@@ -361,6 +441,7 @@ class GameManager:
         self._detach_game(game)
 
         self._clear_all_auto_aborts(game)
+        self._clear_all_bot_tasks(game)
 
         try:
             await game.clocks.shutdown()
@@ -387,6 +468,8 @@ class GameManager:
         lobby_mgr = self._lobby_mgr
         released: dict[UUID, Lobby | None] = {}
         for p in game.players:
+            if p.is_bot:
+                continue
             lobby_id = p.lobby_id
             if lobby_mgr is None or lobby_id is None:
                 await self._notifier.mark_idle_if_online(p.username)
