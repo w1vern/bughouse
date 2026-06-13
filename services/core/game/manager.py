@@ -228,10 +228,6 @@ class GameManager:
         except (chess.IllegalMoveError, chess.InvalidMoveError, ValueError) as exc:
             raise GameError.illegal_move(str(exc)) from exc
 
-        # This board's ply advanced, so any bot think budget tracked for it is
-        # done; the next mover (re-scheduled below) starts a fresh budget.
-        game.think_started_at[board_idx] = None
-
         spent = 0
         if board_moves_before >= 2:
             spent = await game.clocks.stop_and_apply(board_idx, game.config.incr)
@@ -276,7 +272,7 @@ class GameManager:
         # A capture feeds the partner board's pocket. That can hand a droppable
         # piece to a bot sitting there with no legal move (e.g. it could only
         # answer a check by blocking but had nothing to drop), so wake/restart
-        # that board too. Its think budget is preserved (not reset here).
+        # that board too.
         if apply_result.captured is not None:
             self._maybe_schedule_bot(game, 1 - board_idx)
 
@@ -486,30 +482,24 @@ class GameManager:
         board: chess.Board,
         board_idx: int,
     ) -> float:
-        """Seconds the engine may think on the current ply.
+        """Seconds the engine may think on this move.
 
-        Clock-aware and hard-capped by ``max_think_ms``. The ceiling is measured
-        from when thinking on this ply began, so restarts triggered by a pocket
-        change (a piece arriving mid-search) do not hand out fresh time.
+        The budget is the minimum of the time remaining on this board's clock
+        for the side to move and the configured per-move ceiling
+        (``max_think_ms``). A small safety margin keeps a search from running
+        the bot's own clock down to a flag, and a floor guarantees a real
+        search even on very low time.
         """
-        now = time.monotonic()
-        if game.think_started_at[board_idx] is None:
-            game.think_started_at[board_idx] = now
-        elapsed_ms = (now - game.think_started_at[board_idx]) * 1000
-
         cap_ms = self._engine.max_think_ms if self._engine is not None else 1000
-        remaining_cap_ms = cap_ms - elapsed_ms
-
         snap = game.clocks.snapshot()
         own_ms = (
             snap[f"b{board_idx}w"]
             if board.turn == chess.WHITE
             else snap[f"b{board_idx}b"]
         )
-        clock_ms = own_ms // 20 + game.config.incr
-
-        budget_ms = min(clock_ms, remaining_cap_ms)
-        budget_ms = min(budget_ms, max(50, own_ms - 100))  # never think past our flag
+        budget_ms = min(cap_ms, own_ms)
+        # Never think the clock down to (or past) a flag.
+        budget_ms = min(budget_ms, max(50, own_ms - 100))
         budget_ms = max(50, budget_ms)
         return budget_ms / 1000
 

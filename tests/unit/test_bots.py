@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
 from shared.infrastructure import BotConfig
 
+import services.bootstrap.__main__ as bootstrap
 from services.core.bots import BotRegistry
 from services.core.invites import InviteManager
 from services.core.lobby.errors import (
@@ -273,6 +274,54 @@ class QueueBotTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNotNone(self.manager.get(lobby.id))
         self.assertEqual(self.lobby_mgr.in_queue, [lobby.id])
+
+
+class FakeRedis:
+    """Minimal in-memory Redis supporting the calls clear_stale_presence uses."""
+
+    def __init__(self, sets: dict[str, set[str]], online: set[str]) -> None:
+        self._sets = {k: set(v) for k, v in sets.items()}
+        self._online = set(online)
+        self.closed = False
+
+    async def delete(self, *keys: str) -> None:
+        for key in keys:
+            self._sets.pop(key, None)
+            self._online.discard(key)
+
+    async def scan_iter(self, match: str, count: int = 100):  # noqa: ANN201
+        assert match.endswith("*")
+        prefix = match[:-1]
+        for key in list(self._online):
+            if key.startswith(prefix):
+                yield key
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+    def has(self, key: str) -> bool:
+        return key in self._sets
+
+
+class BootstrapPresenceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_clear_stale_presence_wipes_availability_and_online_locks(self) -> None:
+        redis = FakeRedis(
+            sets={
+                bootstrap.ACTIVE_PLAYER_KEY: {"alice", "bot1"},
+                bootstrap.BOT_ENGINE_ON_KEY: {"bot1"},
+            },
+            online={"ws:online:alice", "ws:online:bob", "other:key"},
+        )
+        with patch.object(bootstrap, "get_redis_client", return_value=redis):
+            await bootstrap.clear_stale_presence()
+
+        self.assertFalse(redis.has(bootstrap.ACTIVE_PLAYER_KEY))
+        self.assertFalse(redis.has(bootstrap.BOT_ENGINE_ON_KEY))
+        # Only ws:online:* locks are scanned and removed; unrelated keys stay.
+        self.assertNotIn("ws:online:alice", redis._online)
+        self.assertNotIn("ws:online:bob", redis._online)
+        self.assertIn("other:key", redis._online)
+        self.assertTrue(redis.closed)
 
 
 if __name__ == "__main__":

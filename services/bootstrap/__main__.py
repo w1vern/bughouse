@@ -11,9 +11,18 @@ from shared.database import (
     UserRepository,
     session_manager,
 )
-from shared.infrastructure import env_config, setup_logger
+from shared.infrastructure import env_config, get_redis_client, setup_logger
 
 logger = setup_logger(__name__)
+
+# Ephemeral presence/runtime keys. They describe who is connected/available
+# right now, so on a fresh stack start they must be empty — anything left over
+# from a previous (possibly unclean) shutdown is stale. Bootstrap runs once,
+# before backend/core accept traffic, so this is the safe place to wipe them.
+# Humans re-register on reconnect; bots are re-enabled by a superadmin.
+ACTIVE_PLAYER_KEY = "active_player"
+BOT_ENGINE_ON_KEY = "bot:engine_on"
+ONLINE_KEY_PATTERN = "ws:online:*"
 
 
 async def wait_for_table(
@@ -61,6 +70,30 @@ async def create_bot_users(ur: UserRepository) -> None:
         )
 
 
+async def clear_stale_presence() -> None:
+    """Wipe leftover presence/availability state from a previous run.
+
+    Clears the available-players set and the bot engine-on set, plus any stale
+    per-connection online locks, so nobody (human or bot) lingers as "available"
+    after a restart.
+    """
+    redis = get_redis_client(env_config.redis.backend)
+    try:
+        await redis.delete(ACTIVE_PLAYER_KEY, BOT_ENGINE_ON_KEY)
+        online_keys = [
+            key async for key in redis.scan_iter(
+                match=ONLINE_KEY_PATTERN, count=100
+            )
+        ]
+        if online_keys:
+            await redis.delete(*online_keys)
+        logger.info("cleared stale presence (%d online locks)", len(online_keys))
+    except Exception:
+        logger.exception("failed to clear stale presence")
+    finally:
+        await redis.aclose()
+
+
 async def main() -> None:
     await wait_for_table("users")
     async with session_manager.context_session() as session:
@@ -76,6 +109,7 @@ async def main() -> None:
                 color=0
             )
         await create_bot_users(ur)
+    await clear_stale_presence()
     logger.info("database is filled")
 
 if __name__ == "__main__":

@@ -542,25 +542,28 @@ class GameManagerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(calls, [1])  # only the move's own board
 
-    async def test_engine_think_ceiling_persists_across_restart(self) -> None:
+    async def test_engine_think_time_is_min_of_clock_and_ceiling(self) -> None:
         self.manager._bots = BotRegistry([BotConfig(name="alice")])
         self.manager._engine = SimpleNamespace(  # type: ignore[assignment]
             max_think_ms=1000,
             is_engine_on=lambda _name: True,
         )
-        game_id = await self.create_game()
+        game_id = await self.create_game()  # 60s clock per board
         game = self.manager._games[game_id]
         self.manager._clear_all_bot_tasks(game)
         board0 = game.boards.boards[0]
 
-        fresh = self.manager._engine_think_time(game, board0, 0)
-        # Pretend 0.8s already went into this ply, as a pocket-change restart
-        # would leave behind; the ceiling must shrink rather than reset.
-        game.think_started_at[0] = time.monotonic() - 0.8
-        after_restart = self.manager._engine_think_time(game, board0, 0)
+        # Ceiling (1s) below the remaining clock (60s) -> capped by the ceiling.
+        self.assertAlmostEqual(
+            self.manager._engine_think_time(game, board0, 0), 1.0, places=2
+        )
 
-        self.assertLess(after_restart, fresh)
-        self.assertGreater(after_restart, 0.0)
+        # Ceiling above the clock -> capped by the remaining time (with a small
+        # safety margin so a search can't run the clock to a flag).
+        self.manager._engine.max_think_ms = 999_000
+        budget = self.manager._engine_think_time(game, board0, 0)
+        self.assertLessEqual(budget, 60.0)
+        self.assertGreater(budget, 59.0)
 
     async def test_make_move_records_move_publishes_to_other_players_and_advances_turn(self) -> None:
         game_id = await self.create_game()
